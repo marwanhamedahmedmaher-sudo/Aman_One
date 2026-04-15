@@ -1,52 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
-import 'otp_screen.dart';
 
-class ForgotPasswordScreen extends StatefulWidget {
+class ForgotPasswordScreen extends StatelessWidget {
   const ForgotPasswordScreen({super.key});
-
-  @override
-  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
-}
-
-class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
-  final _phoneController = TextEditingController();
-  bool _loading = false;
-
-  @override
-  void dispose() {
-    _phoneController.dispose();
-    super.dispose();
-  }
-
-  void _handleSend() {
-    final cleaned = _phoneController.text.trim().replaceAll(RegExp(r'\s'), '');
-    if (cleaned.length < 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى إدخال رقم موبايل صحيح')),
-      );
-      return;
-    }
-
-    setState(() => _loading = true);
-    context.read<AuthProvider>().setPhone(cleaned);
-
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (!mounted) return;
-      setState(() => _loading = false);
-
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => OtpScreen(
-            phone: cleaned,
-            mode: OtpMode.forgotPassword,
-          ),
-        ),
-      );
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -65,14 +21,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   onPressed: () => Navigator.of(context).pop(),
                   icon: const Icon(Icons.chevron_right,
                       size: 18, color: AppColors.primary),
-                  label: Text('العودة لتسجيل الدخول',
+                  label: Text(
+                      '\u0627\u0644\u0639\u0648\u062f\u0629 \u0644\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644',
                       style: AppTheme.linkText.copyWith(fontSize: 13)),
                   style: TextButton.styleFrom(
                     padding: EdgeInsets.zero,
                   ),
                 ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 48),
               // Key icon
               Container(
                 width: 72,
@@ -89,50 +46,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               ),
               const SizedBox(height: 16),
               // Title
-              Text('استعادة كلمة المرور', style: AppTheme.heading2),
-              const SizedBox(height: 28),
-              // Phone label
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text('رقم الموبايل', style: AppTheme.labelText),
-                  const SizedBox(width: 6),
-                  const Icon(Icons.phone_outlined,
-                      size: 16, color: AppColors.textMedium),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // Phone input
-              Directionality(
-                textDirection: TextDirection.ltr,
-                child: TextField(
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
-                  maxLength: 11,
-                  textAlign: TextAlign.right,
-                  style: AppTheme.inputText,
-                  decoration: AppTheme.inputDecoration(
-                    hintText: '01XXXXXXXXX',
-                  ).copyWith(counterText: ''),
-                ),
-              ),
+              Text(
+                  '\u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
+                  style: AppTheme.heading2),
               const SizedBox(height: 16),
-              // Send OTP button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _loading ? null : _handleSend,
-                  style: AppTheme.primaryButton(),
-                  child: _loading
-                      ? const SizedBox(
-                          height: 22,
-                          width: 22,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2.5,
-                          ),
-                        )
-                      : Text('إرسال رمز التحقق', style: AppTheme.buttonText),
+              // Message
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  '\u0644\u0627\u0633\u062a\u0639\u0627\u062f\u0629 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631\u060c \u064a\u0631\u062c\u0649 \u0627\u0644\u062a\u0648\u0627\u0635\u0644 \u0645\u0639 \u0645\u062f\u064a\u0631\u0643 \u0627\u0644\u0645\u0628\u0627\u0634\u0631',
+                  style: AppTheme.bodyMedium,
+                  textAlign: TextAlign.center,
                 ),
               ),
             ],

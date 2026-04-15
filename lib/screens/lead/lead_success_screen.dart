@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 
-class RegistrationSuccessScreen extends StatelessWidget {
-  const RegistrationSuccessScreen({super.key});
+class LeadSuccessScreen extends StatelessWidget {
+  const LeadSuccessScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +36,7 @@ class RegistrationSuccessScreen extends StatelessWidget {
 
                 // Title
                 Text(
-                  'تم إرسال الطلب بنجاح',
+                  '\u062a\u0645 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u0639\u0645\u064a\u0644 \u0628\u0646\u062c\u0627\u062d',
                   style: AppTheme.heading2,
                   textAlign: TextAlign.center,
                 ),
@@ -44,7 +44,7 @@ class RegistrationSuccessScreen extends StatelessWidget {
 
                 // Subtitle
                 Text(
-                  'سيتم مراجعة طلبك والرد عليك قريباً\nشكراً لاستخدام منصة أمان',
+                  '\u062a\u0645 \u0625\u0636\u0627\u0641\u0629 \u0627\u0644\u0639\u0645\u064a\u0644 \u0627\u0644\u062c\u062f\u064a\u062f \u0628\u0646\u062c\u0627\u062d\n\u0634\u0643\u0631\u0627\u064b \u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0645\u0646\u0635\u0629 \u0623\u0645\u0627\u0646',
                   style: AppTheme.bodyMedium,
                   textAlign: TextAlign.center,
                 ),
@@ -60,7 +60,10 @@ class RegistrationSuccessScreen extends StatelessWidget {
                           .popUntil((route) => route.isFirst);
                     },
                     style: AppTheme.primaryButton(),
-                    child: Text('العودة للرئيسية', style: AppTheme.buttonText),
+                    child: Text(
+                      '\u0627\u0644\u0639\u0648\u062f\u0629 \u0644\u0644\u0631\u0626\u064a\u0633\u064a\u0629',
+                      style: AppTheme.buttonText,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 32),

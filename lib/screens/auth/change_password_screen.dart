@@ -4,19 +4,17 @@ import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/auth_header.dart';
 import '../main/main_shell.dart';
-import 'otp_screen.dart';
-import 'phone_entry_screen.dart';
 
-class SetPasswordScreen extends StatefulWidget {
-  final OtpMode mode;
+class ChangePasswordScreen extends StatefulWidget {
+  final bool isFirstLogin;
 
-  const SetPasswordScreen({super.key, required this.mode});
+  const ChangePasswordScreen({super.key, this.isFirstLogin = false});
 
   @override
-  State<SetPasswordScreen> createState() => _SetPasswordScreenState();
+  State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
 }
 
-class _SetPasswordScreenState extends State<SetPasswordScreen> {
+class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
   bool _showPassword = false;
@@ -30,48 +28,55 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
     super.dispose();
   }
 
-  void _handleSave() {
+  Future<void> _handleSave() async {
     if (_passwordController.text.length < 8) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('كلمة المرور يجب أن تحتوي على 8 أحرف على الأقل'),
+          content: Text(
+              '\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064a\u062c\u0628 \u0623\u0646 \u062a\u062d\u062a\u0648\u064a \u0639\u0644\u0649 8 \u0623\u062d\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644'),
         ),
       );
       return;
     }
     if (_passwordController.text != _confirmController.text) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('كلمتا المرور غير متطابقتين')),
+        const SnackBar(
+            content:
+                Text('\u0643\u0644\u0645\u062a\u0627 \u0627\u0644\u0645\u0631\u0648\u0631 \u063a\u064a\u0631 \u0645\u062a\u0637\u0627\u0628\u0642\u062a\u064a\u0646')),
       );
       return;
     }
 
     setState(() => _loading = true);
 
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (!mounted) return;
-      setState(() => _loading = false);
+    final auth = context.read<AuthProvider>();
+    final result = await auth.changePassword(_passwordController.text);
 
-      if (widget.mode == OtpMode.forgotPassword) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content:
-                Text('تم تغيير كلمة المرور بنجاح. يمكنك تسجيل الدخول الآن.'),
-          ),
-        );
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const PhoneEntryScreen()),
-          (route) => false,
-        );
-      } else {
-        final auth = context.read<AuthProvider>();
-        auth.login();
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const MainShell()),
-          (route) => false,
-        );
-      }
-    });
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    if (!result.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(result.error ??
+                '\u0641\u0634\u0644 \u062a\u063a\u064a\u064a\u0631 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631')),
+      );
+      return;
+    }
+
+    // Password changed successfully
+    auth.completeAuth();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text(
+              '\u062a\u0645 \u062a\u063a\u064a\u064a\u0631 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0628\u0646\u062c\u0627\u062d')),
+    );
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const MainShell()),
+      (route) => false,
+    );
   }
 
   @override
@@ -104,13 +109,15 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                     children: [
                       // Title
                       Text(
-                        'تعيين كلمة مرور جديدة',
+                        '\u062a\u0639\u064a\u064a\u0646 \u0643\u0644\u0645\u0629 \u0645\u0631\u0648\u0631 \u062c\u062f\u064a\u062f\u0629',
                         style: AppTheme.heading3,
                         textAlign: TextAlign.right,
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'يجب أن تحتوي على 8 أحرف على الأقل',
+                        widget.isFirstLogin
+                            ? '\u064a\u062c\u0628 \u062a\u063a\u064a\u064a\u0631 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u0645\u0624\u0642\u062a\u0629'
+                            : '\u064a\u062c\u0628 \u0623\u0646 \u062a\u062d\u062a\u0648\u064a \u0639\u0644\u0649 8 \u0623\u062d\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644',
                         style: AppTheme.bodySmall,
                         textAlign: TextAlign.right,
                       ),
@@ -119,7 +126,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Text('كلمة المرور الجديدة',
+                          Text('\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062c\u062f\u064a\u062f\u0629',
                               style: AppTheme.labelText),
                           const SizedBox(width: 6),
                           const Icon(Icons.lock_outline,
@@ -134,7 +141,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                         textDirection: TextDirection.rtl,
                         style: AppTheme.inputText,
                         decoration: AppTheme.inputDecoration(
-                          hintText: '••••••••',
+                          hintText: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
                         ).copyWith(
                           prefixIcon: IconButton(
                             icon: Icon(
@@ -154,7 +161,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Text('تأكيد كلمة المرور',
+                          Text('\u062a\u0623\u0643\u064a\u062f \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
                               style: AppTheme.labelText),
                           const SizedBox(width: 6),
                           const Icon(Icons.lock_outline,
@@ -169,7 +176,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                         textDirection: TextDirection.rtl,
                         style: AppTheme.inputText,
                         decoration: AppTheme.inputDecoration(
-                          hintText: '••••••••',
+                          hintText: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
                         ).copyWith(
                           prefixIcon: IconButton(
                             icon: Icon(
@@ -200,7 +207,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                                     strokeWidth: 2.5,
                                   ),
                                 )
-                              : Text('حفظ', style: AppTheme.buttonText),
+                              : Text('\u062d\u0641\u0638', style: AppTheme.buttonText),
                         ),
                       ),
                     ],

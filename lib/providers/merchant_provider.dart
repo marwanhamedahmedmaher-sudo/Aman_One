@@ -1,154 +1,88 @@
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/merchant.dart';
 
-class MerchantProvider extends ChangeNotifier {
-  int _currentStep = 0;
-  Merchant _merchant = Merchant.empty();
+class LeadProvider extends ChangeNotifier {
+  Lead _lead = Lead.empty();
   bool _isSubmitting = false;
+  String? _error;
 
-  // Dropdown data
-  static const List<String> businessTypes = [
-    'بقالة',
-    'صيدلية',
-    'مطعم',
-    'ملابس',
-    'إلكترونيات',
-    'مستلزمات منزلية',
-    'أخرى',
-  ];
-
-  static const List<String> regions = [
-    'القاهرة',
-    'الجيزة',
-    'الإسكندرية',
-    'المنصورة',
-    'الشرقية',
-    'أسيوط',
-    'الأقصر',
-    'أسوان',
-  ];
-
-  static const List<String> bankNames = [
-    'البنك الأهلي المصري',
-    'بنك مصر',
-    'بنك القاهرة',
-    'البنك التجاري الدولي',
-    'بنك الإسكندرية',
-    'بنك QNB الأهلي',
-  ];
+  final _supabase = Supabase.instance.client;
 
   // Getters
-  int get currentStep => _currentStep;
-  Merchant get merchant => _merchant;
+  Lead get lead => _lead;
   bool get isSubmitting => _isSubmitting;
+  String? get error => _error;
 
-  // Step navigation
-  void nextStep() {
-    if (_currentStep < 2) {
-      _currentStep++;
-      notifyListeners();
-    }
-  }
-
-  void previousStep() {
-    if (_currentStep > 0) {
-      _currentStep--;
-      notifyListeners();
-    }
-  }
-
-  // Step 1 - Identity setters
-  void setPersonalPhoto(String path) {
-    _merchant = _merchant.copyWith(personalPhotoPath: path);
-    notifyListeners();
-  }
-
-  void setNationalIdFront(String path) {
-    _merchant = _merchant.copyWith(nationalIdFrontPath: path);
-    notifyListeners();
-  }
-
-  void setNationalIdBack(String path) {
-    _merchant = _merchant.copyWith(nationalIdBackPath: path);
-    notifyListeners();
-  }
-
-  // Step 2 - Business info
-  void updateBusinessInfo({
-    String? merchantName,
-    String? phoneNumber,
-    String? businessType,
-    String? address,
-    String? region,
-    String? postalCode,
+  // Field setters
+  void updateLead({
+    String? name,
+    String? phone,
+    String? nationalId,
+    String? notes,
   }) {
-    _merchant = _merchant.copyWith(
-      merchantName: merchantName,
-      phoneNumber: phoneNumber,
-      businessType: businessType,
-      address: address,
-      region: region,
-      postalCode: postalCode,
+    _lead = _lead.copyWith(
+      name: name,
+      phone: phone,
+      nationalId: nationalId,
+      notes: notes,
     );
-    notifyListeners();
-  }
-
-  // Step 3 - Financial info
-  void updateFinancialInfo({
-    String? bankName,
-    String? accountNumber,
-    String? ibanNumber,
-  }) {
-    _merchant = _merchant.copyWith(
-      bankName: bankName,
-      accountNumber: accountNumber,
-      ibanNumber: ibanNumber,
-    );
+    _error = null;
     notifyListeners();
   }
 
   // Validation
-  bool get isStep1Valid =>
-      _merchant.personalPhotoPath != null &&
-      _merchant.nationalIdFrontPath != null &&
-      _merchant.nationalIdBackPath != null;
+  bool get isValid =>
+      _lead.name.length >= 2 &&
+      _lead.phone.length == 11 &&
+      _lead.phone.startsWith('01') &&
+      _lead.nationalId.length == 14 &&
+      RegExp(r'^\d{14}$').hasMatch(_lead.nationalId);
 
-  bool get isStep2Valid =>
-      _merchant.merchantName.length >= 3 &&
-      _merchant.phoneNumber.length >= 10 &&
-      _merchant.businessType.isNotEmpty &&
-      _merchant.address.length >= 5 &&
-      _merchant.region.isNotEmpty;
+  // Submit to Supabase
+  Future<bool> submit() async {
+    if (!isValid) return false;
 
-  bool get isStep3Valid =>
-      _merchant.bankName.isNotEmpty &&
-      _merchant.accountNumber.length >= 10 &&
-      _merchant.ibanNumber.length == 29 &&
-      _merchant.ibanNumber.startsWith('EG');
-
-  // Submit
-  Future<bool> submitRegistration() async {
     _isSubmitting = true;
+    _error = null;
     notifyListeners();
 
-    // TODO: Replace with actual API call
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      await _supabase.from('merchants').insert(_lead.toJson());
 
-    _merchant = _merchant.copyWith(
-      status: 'submitted',
-      submittedAt: DateTime.now().toIso8601String(),
-    );
+      _isSubmitting = false;
+      notifyListeners();
+      return true;
+    } on PostgrestException catch (e) {
+      _isSubmitting = false;
 
-    _isSubmitting = false;
-    notifyListeners();
-    return true;
+      // Handle specific Postgres errors
+      if (e.code == '23505') {
+        // Unique constraint violation (duplicate national_id_hash)
+        _error = '\u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0642\u0648\u0645\u064a \u0645\u0633\u062c\u0644 \u0628\u0627\u0644\u0641\u0639\u0644';
+      } else if (e.message.contains('\u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0628\u0627\u064a\u0644 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d')) {
+        _error = '\u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0628\u0627\u064a\u0644 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d';
+      } else if (e.message.contains('\u0631\u0642\u0645 \u0627\u0644\u0642\u0648\u0645\u064a \u063a\u064a\u0631 \u0635\u062d\u064a\u062d')) {
+        _error = '\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0642\u0648\u0645\u064a \u063a\u064a\u0631 \u0635\u062d\u064a\u062d';
+      } else {
+        _error = '\u062d\u062f\u062b \u062e\u0637\u0623 \u0623\u062b\u0646\u0627\u0621 \u0627\u0644\u062a\u0633\u062c\u064a\u0644';
+      }
+
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _isSubmitting = false;
+      _error = '\u062d\u062f\u062b \u062e\u0637\u0623 \u063a\u064a\u0631 \u0645\u062a\u0648\u0642\u0639';
+      notifyListeners();
+      return false;
+    }
   }
 
-  // Reset
+  // Reset form
   void reset() {
-    _currentStep = 0;
-    _merchant = Merchant.empty();
+    _lead = Lead.empty();
     _isSubmitting = false;
+    _error = null;
     notifyListeners();
   }
 }

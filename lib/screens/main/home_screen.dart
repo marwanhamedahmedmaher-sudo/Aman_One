@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
-import '../merchant/merchant_registration_screen.dart';
+import '../lead/new_lead_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -126,19 +126,19 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Register new merchant button
+            // Register new lead button
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const MerchantRegistrationScreen(),
+                      builder: (_) => const NewLeadScreen(),
                     ),
                   );
                 },
                 icon: const Icon(Icons.add, size: 22),
-                label: Text('تسجيل تاجر جديد', style: AppTheme.buttonText),
+                label: Text('\u062a\u0633\u062c\u064a\u0644 \u0639\u0645\u064a\u0644 \u062c\u062f\u064a\u062f', style: AppTheme.buttonText),
                 style: AppTheme.primaryButton(
                     backgroundColor: AppColors.buttonOrange),
               ),

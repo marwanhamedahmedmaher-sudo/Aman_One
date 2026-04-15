@@ -4,7 +4,6 @@ import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/auth_header.dart';
 import 'forgot_password_screen.dart';
-import 'otp_screen.dart';
 import 'password_screen.dart';
 
 class PhoneEntryScreen extends StatefulWidget {
@@ -26,10 +25,12 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
 
   void _handleContinue() {
     final cleaned = _phoneController.text.trim().replaceAll(RegExp(r'\s'), '');
-    if (cleaned.length < 10) {
+
+    // Validate: 11 digits starting with 01
+    if (cleaned.length != 11 || !cleaned.startsWith('01')) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('يرجى إدخال رقم موبايل صحيح من 10 أرقام'),
+          content: Text('\u064a\u0631\u062c\u0649 \u0625\u062f\u062e\u0627\u0644 \u0631\u0642\u0645 \u0645\u0648\u0628\u0627\u064a\u0644 \u0635\u062d\u064a\u062d \u0645\u0646 11 \u0631\u0642\u0645'),
         ),
       );
       return;
@@ -40,23 +41,14 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     final auth = context.read<AuthProvider>();
     auth.setPhone(cleaned);
 
-    Future.delayed(const Duration(milliseconds: 700), () {
+    // Small delay for visual feedback, then navigate to password
+    Future.delayed(const Duration(milliseconds: 300), () {
       if (!mounted) return;
       setState(() => _loading = false);
 
-      final result = auth.checkPhone(cleaned);
-
-      if (!result.isFirstTime) {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const PasswordScreen()),
-        );
-      } else {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => OtpScreen(phone: cleaned, mode: OtpMode.firstTime),
-          ),
-        );
-      }
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const PasswordScreen()),
+      );
     });
   }
 
@@ -92,7 +84,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Text('رقم الموبايل', style: AppTheme.labelText),
+                          Text('\u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0628\u0627\u064a\u0644', style: AppTheme.labelText),
                           const SizedBox(width: 6),
                           const Icon(Icons.phone_outlined,
                               size: 18, color: AppColors.textMedium),
@@ -129,7 +121,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                                     strokeWidth: 2.5,
                                   ),
                                 )
-                              : Text('تسجيل الدخول',
+                              : Text('\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644',
                                   style: AppTheme.buttonText),
                         ),
                       ),
@@ -144,7 +136,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                               ),
                             );
                           },
-                          child: Text('نسيت كلمة المرور؟',
+                          child: Text('\u0646\u0633\u064a\u062a \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631\u061f',
                               style: AppTheme.linkText),
                         ),
                       ),

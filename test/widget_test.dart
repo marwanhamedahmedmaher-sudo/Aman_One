@@ -1,30 +1,21 @@
-// This is a basic Flutter widget test.
+// Minimal smoke test for the Aman Sales App.
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// TODO: Add proper widget tests once Supabase mocking is in place.
+// AmanApp requires Supabase.initialize() before it can be constructed,
+// which needs a mock HTTP backend or the supabase_flutter test helpers.
+// For now, we verify the project compiles and the app class exists.
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:aman_sales_app/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('AmanApp class exists and can be referenced', () {
+    // Verify the AmanApp constructor is accessible.
+    // We cannot call pumpWidget(AmanApp()) without a running Supabase
+    // instance. Full widget tests require either:
+    //   1. A Supabase mock (e.g. mockito + mock SupabaseClient), or
+    //   2. Running against a local Supabase instance (integration test).
+    // TODO: Implement Supabase mocking in a follow-up task.
+    expect(AmanApp.new, isA<Function>());
   });
 }
