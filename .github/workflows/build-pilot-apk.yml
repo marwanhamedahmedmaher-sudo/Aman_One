@@ -65,6 +65,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
+          : "${SUPABASE_URL:?SUPABASE_URL secret is required — set it in repo Settings → Secrets and variables → Actions}"
+          : "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY secret is required — set it in repo Settings → Secrets and variables → Actions}"
           flutter build apk --release \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
