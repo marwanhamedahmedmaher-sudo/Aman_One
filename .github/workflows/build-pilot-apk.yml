@@ -86,8 +86,11 @@ jobs:
           sudo apt-get install -y apktool
           apktool d build/app/outputs/flutter-apk/app-release.apk -o decompiled/ -f
           echo "=== Scanning for forbidden secrets ==="
-          if grep -rniE "service_role|supabase_service_role|SERVICE_ROLE_KEY" decompiled/; then
+          # -l emits filenames only; matching content is never echoed to the log.
+          if MATCHES=$(grep -rlE "service_role|supabase_service_role|SERVICE_ROLE_KEY" decompiled/); then
             echo "::error::service_role key detected in APK — BLOCKING"
+            echo "Matching files (content suppressed to avoid leaking secrets):"
+            printf '%s\n' "$MATCHES"
             exit 1
           fi
           JWT_COUNT=$(grep -rcE "eyJ[A-Za-z0-9_-]{20,}" decompiled/ 2>/dev/null \
