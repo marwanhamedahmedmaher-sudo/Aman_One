@@ -72,6 +72,10 @@ jobs:
       - name: Verify APK signature
         run: |
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found under $ANDROID_HOME/build-tools"
+            exit 1
+          fi
           echo "Using: $APKSIGNER"
           "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk
 
