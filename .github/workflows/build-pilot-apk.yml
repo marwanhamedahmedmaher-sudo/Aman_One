@@ -12,6 +12,8 @@ jobs:
   build:
     name: Build signed release APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -43,13 +45,14 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          STORE_FILE_PATH: ${{ github.workspace }}/android/app/aman-release.jks
         run: |
-          cat > android/key.properties <<EOF
-          storePassword=$KEYSTORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=${{ github.workspace }}/android/app/aman-release.jks
-          EOF
+          {
+            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyPassword=%s\n'   "$KEY_PASSWORD"
+            printf 'keyAlias=%s\n'      "$KEY_ALIAS"
+            printf 'storeFile=%s\n'     "$STORE_FILE_PATH"
+          } > android/key.properties
 
       - name: Flutter pub get
         run: flutter pub get
@@ -63,14 +66,14 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           flutter build apk --release \
-            --dart-define=SUPABASE_URL=$SUPABASE_URL \
-            --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
 
       - name: Verify APK signature
         run: |
-          APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -1)
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
           echo "Using: $APKSIGNER"
-          $APKSIGNER verify --print-certs build/app/outputs/flutter-apk/app-release.apk
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk
 
       - name: Secret scan (decompile + grep)
         run: |
@@ -81,19 +84,26 @@ jobs:
             echo "::error::service_role key detected in APK — BLOCKING"
             exit 1
           fi
-          echo "Scan clean — only anon key present (verified below):"
-          grep -rnE "eyJ[A-Za-z0-9_-]{20,}" decompiled/ | head -5 || true
+          JWT_COUNT=$(grep -rcE "eyJ[A-Za-z0-9_-]{20,}" decompiled/ 2>/dev/null \
+                      | awk -F: '{s+=$2} END {print s+0}')
+          echo "Scan clean. JWT-like tokens found in APK: $JWT_COUNT (expected: anon key occurrences only)"
 
-      - name: Rename APK
+      - name: Sanitize version and rename APK
         run: |
+          VERSION_SAFE=$(printf '%s' "${{ inputs.version_name }}" | tr -cd '[:alnum:]._-')
+          if [ -z "$VERSION_SAFE" ]; then
+            echo "::error::version_name contained no allowed characters ([A-Za-z0-9._-])"
+            exit 1
+          fi
           cp build/app/outputs/flutter-apk/app-release.apk \
-             build/app/outputs/flutter-apk/aman-v${{ inputs.version_name }}.apk
+             "build/app/outputs/flutter-apk/aman-v${VERSION_SAFE}.apk"
           ls -lh build/app/outputs/flutter-apk/
+          echo "VERSION_SAFE=$VERSION_SAFE" >> "$GITHUB_ENV"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aman-pilot-apk-v${{ inputs.version_name }}
-          path: build/app/outputs/flutter-apk/aman-v${{ inputs.version_name }}.apk
+          name: aman-pilot-apk-v${{ env.VERSION_SAFE }}
+          path: build/app/outputs/flutter-apk/aman-v${{ env.VERSION_SAFE }}.apk
           retention-days: 30
           if-no-files-found: error
