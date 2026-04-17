@@ -29,16 +29,29 @@
 - [ ] User denies biometric permission -> graceful fallback
 
 ## D5. End-to-End Flow
-- [ ] Admin provisions rep in Dashboard (phone + temp password + must_change_password=true)
+- [ ] Admin provisions rep via `./scripts/provision_rep.sh` (phone + temp password + must_change_password=true); UI fallback only
 - [ ] Admin sends temp password via email + WhatsApp
 - [ ] Rep opens app -> enters phone -> enters temp password -> forced to change password
 - [ ] Rep sets new password -> lands on home screen
 - [ ] Rep taps "تسجيل عميل جديد" -> lead form opens
-- [ ] Rep fills name, phone, national ID, notes -> submits
-- [ ] Lead appears in Supabase Table Editor
+- [ ] Rep fills name, phone, national ID, notes, **selects ≥1 product (Microfinance / BP POS / Acceptance POS)** -> submits
+- [ ] Lead appears in Supabase Table Editor with `products` column populated
+- [ ] Rep submits lead with **zero products selected** -> DB CHECK rejects with Arabic error. **Known UX gap (P1-7):** no client-side guard yet — raw DB error surfaces instead of inline validation message. Expected to fail gracefully post-P1-7.
 - [ ] Rep tries duplicate National ID -> Arabic error shown
-- [ ] Admin runs export snippet -> CSV contains the lead with Arabic headers
+- [ ] Admin runs export snippet -> CSV contains the lead with Arabic headers (products column included)
 - [ ] Rep logs out -> biometric prompt on next launch (if enabled)
+
+## D7. Products Column (Migration 008) Tests
+- [ ] Insert with `products = ARRAY['Microfinance']` -> succeeds
+- [ ] Insert with `products = ARRAY['Microfinance', 'BP POS']` -> succeeds
+- [ ] Insert with `products = '{}'` -> CHECK constraint rejects
+- [ ] Insert with `products = ARRAY['SomethingElse']` -> CHECK constraint rejects (value not in whitelist)
+- [ ] Existing merchants backfilled with `ARRAY['Microfinance']` (see migration 008)
+
+## D8. Audit Trigger Auth-Gate (Migration 009) Tests
+- [ ] App-user INSERT via RLS session -> `audit_log` row created, `actor_id` = rep's auth.uid()
+- [ ] Dashboard/service-role INSERT on `merchants` -> no `audit_log` row, no FK error (by design)
+- [ ] Migration backfill UPDATE -> no `audit_log` row, no FK error (by design)
 
 ## D6. Pre-Pilot Checklist
 - [ ] 2FA enabled on all Supabase Dashboard accounts

@@ -78,16 +78,15 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                   ),
                   padding: const EdgeInsets.all(24),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Label
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Text('\u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0628\u0627\u064a\u0644', style: AppTheme.labelText),
-                          const SizedBox(width: 6),
                           const Icon(Icons.phone_outlined,
                               size: 18, color: AppColors.textMedium),
+                          const SizedBox(width: 6),
+                          Text('\u0631\u0642\u0645 \u0627\u0644\u0645\u0648\u0628\u0627\u064a\u0644', style: AppTheme.labelText),
                         ],
                       ),
                       const SizedBox(height: 10),

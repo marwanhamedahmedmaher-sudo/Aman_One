@@ -105,13 +105,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   ),
                   padding: const EdgeInsets.all(24),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Title
                       Text(
                         '\u062a\u0639\u064a\u064a\u0646 \u0643\u0644\u0645\u0629 \u0645\u0631\u0648\u0631 \u062c\u062f\u064a\u062f\u0629',
                         style: AppTheme.heading3,
-                        textAlign: TextAlign.right,
                       ),
                       const SizedBox(height: 6),
                       Text(
@@ -119,18 +118,16 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                             ? '\u064a\u062c\u0628 \u062a\u063a\u064a\u064a\u0631 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u0645\u0624\u0642\u062a\u0629'
                             : '\u064a\u062c\u0628 \u0623\u0646 \u062a\u062d\u062a\u0648\u064a \u0639\u0644\u0649 8 \u0623\u062d\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644',
                         style: AppTheme.bodySmall,
-                        textAlign: TextAlign.right,
                       ),
                       const SizedBox(height: 20),
                       // New password label
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Text('\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062c\u062f\u064a\u062f\u0629',
-                              style: AppTheme.labelText),
-                          const SizedBox(width: 6),
                           const Icon(Icons.lock_outline,
                               size: 16, color: AppColors.textMedium),
+                          const SizedBox(width: 6),
+                          Text('\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062c\u062f\u064a\u062f\u0629',
+                              style: AppTheme.labelText),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -159,13 +156,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       const SizedBox(height: 16),
                       // Confirm password label
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Text('\u062a\u0623\u0643\u064a\u062f \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
-                              style: AppTheme.labelText),
-                          const SizedBox(width: 6),
                           const Icon(Icons.lock_outline,
                               size: 16, color: AppColors.textMedium),
+                          const SizedBox(width: 6),
+                          Text('\u062a\u0623\u0643\u064a\u062f \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
+                              style: AppTheme.labelText),
                         ],
                       ),
                       const SizedBox(height: 8),

@@ -1,0 +1,142 @@
+# =============================================================================
+# CodeRabbit configuration for Aman Sales App
+# Docs: https://docs.coderabbit.ai/reference/configuration
+# Primary review ruleset: .github/REVIEW_CONTEXT.md (read first)
+# Project state: CLAUDE.md
+# Architecture: ARCHITECTURE.md
+# =============================================================================
+
+language: "en-US"
+
+reviews:
+  profile: "assertive"          # fintech — over-report is cheaper than miss
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false                   # no poems on a fintech repo
+  review_status: true
+  collapse_walkthrough: false
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - "main"
+      - "develop"
+
+  # Exclude generated / vendor paths from review to reduce noise.
+  path_filters:
+    - "!**/*.g.dart"
+    - "!**/*.freezed.dart"
+    - "!build/**"
+    - "!ios/**"
+    - "!android/**"
+    - "!linux/**"
+    - "!macos/**"
+    - "!windows/**"
+    - "!web/**/*.js"
+    - "!pubspec.lock"
+
+  # Path-scoped review instructions. Applied in addition to the global
+  # ruleset in .github/REVIEW_CONTEXT.md.
+  path_instructions:
+    - path: "supabase/migrations/**/*.sql"
+      instructions: |
+        Treat every migration as a pilot-blocker. Enforce:
+        (1) numbered sequentially, no gaps;
+        (2) RLS enabled on any new table, with explicit policies distinguishing
+            sales_rep from admin (use is_admin() helper);
+        (3) SECURITY DEFINER functions MUST pin `SET search_path = public`
+            and manually enforce ownership (created_by = auth.uid() OR is_admin());
+        (4) triggers on `merchants` must tolerate NULL auth.uid() (see migration 009);
+        (5) no destructive drops on merchants/users/audit_log without a two-step path;
+        (6) no new snippet or view that exposes plaintext national_id — hashed only.
+        See REVIEW_CONTEXT.md §3.3 and §4.
+
+    - path: "lib/providers/**/*.dart"
+      instructions: |
+        State-layer rules:
+        (1) no SELECT * against `merchants` — enumerate columns, exclude national_id;
+        (2) plaintext NID reaches the client ONLY via the `reveal_national_id` RPC;
+        (3) Supabase errors must be mapped to Arabic user-facing messages;
+        (4) guard `notifyListeners()` against post-dispose calls;
+        (5) no service-role keys or hardcoded Supabase URLs — use --dart-define.
+        See REVIEW_CONTEXT.md §3.1 and §5.
+
+    - path: "lib/screens/**/*.dart"
+      instructions: |
+        RTL & UX rules (Arabic-first, non-negotiable):
+        (1) use EdgeInsetsDirectional / AlignmentDirectional, not left/right;
+        (2) no hardcoded English user-facing strings;
+        (3) no TextDirection.ltr outside genuinely LTR content;
+        (4) check `context.mounted` after every `await` before using context;
+        (5) loading states must clear on error.
+        See REVIEW_CONTEXT.md §5.1 and §5.2.
+
+    - path: "scripts/**/*.sh"
+      instructions: |
+        Provisioning / admin scripts:
+        (1) never echo or log the service-role key;
+        (2) source SUPABASE_SERVICE_ROLE_KEY from env / password manager at runtime,
+            never inline;
+        (3) Admin API calls for rep creation must pass `phone_confirm: true`
+            (no SMS path is configured — by design).
+        See P0-DASHBOARD-RUNBOOK.md and CLAUDE.md Current Decisions (Option C1).
+
+    - path: ".env*"
+      instructions: |
+        `.env.admin` and any file containing secrets must be gitignored.
+        Flag any committed `.env*` file that is not `.env.admin.example`.
+
+  # Pre-merge gates. Max 5 custom checks, each ≤10k chars.
+  pre_merge_checks:
+    custom_checks:
+      - name: "RLS enabled on new tables"
+        mode: "error"
+        instructions: |
+          Fail if any migration in this PR issues `CREATE TABLE public.*` without
+          a matching `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` and at least
+          one `CREATE POLICY` in the same or a subsequent migration.
+
+      - name: "SECURITY DEFINER hardening"
+        mode: "error"
+        instructions: |
+          Fail if any new `SECURITY DEFINER` function is missing `SET search_path`
+          or does not manually enforce ownership (e.g. `auth.uid()` check +
+          `is_admin()` escape). Reference: migration 010 as the canonical pattern.
+
+      - name: "No plaintext NID leakage to client"
+        mode: "error"
+        instructions: |
+          Fail if any Dart file under `lib/` introduces a SELECT against
+          `public.merchants` that includes `national_id`, or writes NID to
+          SharedPreferences, flutter_secure_storage, logs, or analytics.
+          The only permitted client path is the `reveal_national_id` RPC.
+
+      - name: "Secrets hygiene"
+        mode: "error"
+        instructions: |
+          Fail if any Supabase service-role key, password, or NID value appears
+          in source, CI logs, or committed `.env*` files other than
+          `.env.admin.example`. Anon keys and Supabase URL passed via
+          `--dart-define` are fine.
+
+      - name: "RTL-safe UI"
+        mode: "warning"
+        instructions: |
+          Warn if new Flutter widgets under `lib/screens/` use
+          `EdgeInsets.only(left|right)`, `Alignment.centerLeft|Right`, or
+          introduce hardcoded English strings in user-facing UI.
+
+# Point CodeRabbit at our review ruleset so it treats it as a first-class
+# knowledge source. It will also auto-discover CLAUDE.md.
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - ".github/REVIEW_CONTEXT.md"
+      - "ARCHITECTURE.md"
+      - "docs/PILOT-DEPLOYMENT-CHECKLIST.md"
+
+chat:
+  auto_reply: true

@@ -1,7 +1,37 @@
 # P0-18: Admin Dashboard Runbook / دليل لوحة التحكم للمشرف
 
-**Version:** 1.0 | **Date:** 2026-04-14
+**Version:** 1.1 | **Date:** 2026-04-15
 **Audience:** Non-technical admin operating Supabase Dashboard for the Aman pilot.
+
+---
+
+## ⚠️ Hard rules — read first / قواعد ثابتة
+
+1. **NEVER configure an SMS provider** in Supabase Auth settings during V1.
+   The app does not implement OTP. Configuring an SMS provider (Twilio,
+   MessageBird, etc.) would silently enable billable OTP flows the pilot
+   is not designed for. Phone provider stays ON (used for phone-as-username);
+   SMS provider stays UNCONFIGURED.
+   لا تقم أبداً بإعداد مزود SMS في إعدادات المصادقة خلال المرحلة الأولى.
+2. **Public signup must be OFF.** Authentication → Settings → "Allow new
+   users to sign up" → OFF. All users are admin-provisioned.
+3. **2FA on every admin account** with Dashboard access. Non-negotiable.
+4. **Provisioning is script-based, not manual.** Use `scripts/provision_rep.sh`
+   (see Section 1A). Manual UI provisioning is documented as a fallback only.
+
+---
+
+## Provisioning approach (V1)
+
+Two paths exist for creating reps. Use the script by default.
+
+- **Primary — `scripts/provision_rep.sh` (Option C1).** Local bash script
+  invoking the Supabase Admin API. Sets phone + password + role claim +
+  `must_change_password` in one call. No SMS sent (uses `phone_confirm: true`).
+  Service-role key sourced from password manager at runtime, never written to disk.
+- **Fallback — Dashboard UI.** Documented in Section 1 below for emergencies
+  only (e.g., script env broken). Requires manual SQL Editor steps and is
+  error-prone. Avoid.
 
 ---
 
@@ -15,7 +45,57 @@
 
 ---
 
-## 1. Create a New Sales Rep / إنشاء مندوب جديد
+## 1A. Create a New Sales Rep — via Script (RECOMMENDED) / إنشاء مندوب عبر السكربت
+
+### Pre-requisites (one-time setup)
+
+1. Copy `.env.admin.example` to `.env.admin`.
+2. Edit `.env.admin` and add the password-manager command for the service-role key.
+   Example with 1Password CLI:
+   ```bash
+   export SUPABASE_SERVICE_ROLE_KEY="$(op read 'op://Private/Aman Supabase Dev/service_role')"
+   ```
+3. Confirm `.env.admin` is gitignored (`grep .env.admin .gitignore` should match).
+
+### Each provisioning run
+
+```bash
+source .env.admin
+./scripts/provision_rep.sh \
+    --phone "+201012345678" \
+    --name "Rep Full Name" \
+    --employee-id "EMP-001" \
+    --role sales_rep
+```
+
+For an admin: use `--role admin`.
+
+The script will:
+- Create the auth user with phone pre-confirmed (no SMS).
+- Insert the `public.users` profile row with `must_change_password = true`.
+- Set the role claim.
+- Print the temp password ONCE.
+
+**Action after run:**
+1. Copy temp password to your password manager immediately.
+2. Send to rep via **email AND WhatsApp** (manual).
+3. Tell the rep: "You will be asked to change your password on first login."
+
+### Reset a password
+
+```bash
+source .env.admin
+./scripts/reset_password.sh --phone "+201012345678"
+```
+
+Same output discipline — copy once, send via email + WhatsApp.
+
+---
+
+## 1. Create a New Sales Rep — via Dashboard UI (FALLBACK ONLY) / إنشاء مندوب جديد
+
+> ⚠️ Use this path only if the provisioning script is unavailable.
+> Manual steps are error-prone (forgot the SQL claim step = rep can log in but RLS denies everything).
 
 ### English
 

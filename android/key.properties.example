@@ -1,0 +1,14 @@
+# Android release signing — copy to android/key.properties and fill in.
+# DO NOT commit key.properties or the .jks keystore. Both are gitignored.
+#
+# Generate a keystore once (kept off-repo, stored in a password manager):
+#   keytool -genkey -v -keystore ~/aman-release.jks -keyalg RSA -keysize 2048 \
+#     -validity 10000 -alias aman
+#
+# Then point storeFile at that file (absolute path recommended so the keystore
+# never has to live inside the repo tree).
+
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=aman
+storeFile=/absolute/path/to/aman-release.jks

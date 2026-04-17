@@ -152,7 +152,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
                   ),
                   padding: const EdgeInsets.all(24),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Phone number display
                       Text(
@@ -160,17 +160,15 @@ class _PasswordScreenState extends State<PasswordScreen> {
                         style: AppTheme.bodyLarge.copyWith(
                           letterSpacing: 0.5,
                         ),
-                        textAlign: TextAlign.right,
                       ),
                       const SizedBox(height: 20),
                       // Password label
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Text('\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631', style: AppTheme.labelText),
-                          const SizedBox(width: 6),
                           const Icon(Icons.lock_outline,
                               size: 16, color: AppColors.textMedium),
+                          const SizedBox(width: 6),
+                          Text('\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631', style: AppTheme.labelText),
                         ],
                       ),
                       const SizedBox(height: 8),

@@ -22,51 +22,48 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: AppColors.background,
-        body: IndexedStack(
-          index: _currentIndex,
-          children: _screens,
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
+            ),
+          ],
         ),
-        bottomNavigationBar: Container(
-          decoration: BoxDecoration(
-            color: AppColors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
-                blurRadius: 10,
-                offset: const Offset(0, -2),
-              ),
-            ],
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _navItem(
-                    icon: Icons.home_outlined,
-                    activeIcon: Icons.home,
-                    label: 'الرئيسية',
-                    index: 0,
-                  ),
-                  _navItem(
-                    icon: Icons.assignment_outlined,
-                    activeIcon: Icons.assignment,
-                    label: 'المهام',
-                    index: 1,
-                  ),
-                  _navItem(
-                    icon: Icons.person_outline,
-                    activeIcon: Icons.person,
-                    label: 'الملف الشخصي',
-                    index: 2,
-                  ),
-                ],
-              ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _navItem(
+                  icon: Icons.home_outlined,
+                  activeIcon: Icons.home,
+                  label: 'الرئيسية',
+                  index: 0,
+                ),
+                _navItem(
+                  icon: Icons.assignment_outlined,
+                  activeIcon: Icons.assignment,
+                  label: 'المهام',
+                  index: 1,
+                ),
+                _navItem(
+                  icon: Icons.person_outline,
+                  activeIcon: Icons.person,
+                  label: 'الملف الشخصي',
+                  index: 2,
+                ),
+              ],
             ),
           ),
         ),

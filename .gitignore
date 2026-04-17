@@ -43,3 +43,24 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Supabase credentials (local dev)
+.env
+.env.admin
+run_dev.sh
+scripts/provision.log
+
+# Throwaway test harness (project-specific, not portable)
+scripts/test/
+
+# Temp credential files
+credentials-temp.txt
+
+# Android signing
+*.keystore
+*.jks
+android/key.properties
+
+# Editor / tooling config (user-specific, may contain local credentials)
+.claude/
+.obsidian/

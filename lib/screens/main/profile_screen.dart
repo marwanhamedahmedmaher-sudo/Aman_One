@@ -14,8 +14,9 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _confirmLogout = false;
 
-  void _handleLogout() {
-    context.read<AuthProvider>().logout();
+  Future<void> _handleLogout() async {
+    await context.read<AuthProvider>().logout();
+    if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const PhoneEntryScreen()),
       (route) => false,
@@ -151,23 +152,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       child: Row(
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(label, style: AppTheme.bodySmall),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: AppTheme.bodyLarge.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                  textAlign: TextAlign.right,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
           Container(
             width: 40,
             height: 40,
@@ -176,6 +160,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, size: 20, color: AppColors.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: AppTheme.bodySmall),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: AppTheme.bodyLarge.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

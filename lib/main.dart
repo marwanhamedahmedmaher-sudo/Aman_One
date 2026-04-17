@@ -3,6 +3,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/auth_provider.dart';
+import 'providers/merchant_list_provider.dart';
+import 'providers/tasks_provider.dart';
 import 'screens/auth/phone_entry_screen.dart';
 import 'screens/main/main_shell.dart';
 import 'theme/app_theme.dart';
@@ -25,16 +27,20 @@ class AmanApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AuthProvider(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => MerchantListProvider()),
+        ChangeNotifierProvider(create: (_) => TasksProvider()),
+      ],
       child: Consumer<AuthProvider>(
         builder: (context, auth, _) {
           return MaterialApp(
             title: '\u0623\u0645\u0627\u0646',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
-            locale: const Locale('ar'),
-            supportedLocales: const [Locale('ar')],
+            locale: const Locale('ar', 'EG'),
+            supportedLocales: const [Locale('ar', 'EG')],
             localizationsDelegates: const [
               GlobalMaterialLocalizations.delegate,
               GlobalWidgetsLocalizations.delegate,

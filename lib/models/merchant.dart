@@ -4,6 +4,13 @@ class Lead {
   final String phone;
   final String nationalId;
   final String notes;
+  final List<String> products;
+  final double? microfinanceAmount;
+  final int? acceptanceDeviceCount;
+  final double? avgMonthlySales;
+  final String? businessAddress;
+  final String? activityTypeId;
+  final String? activityTypeName; // display-only, from join
   final String status;
   final String? createdBy;
   final DateTime? createdAt;
@@ -14,6 +21,13 @@ class Lead {
     required this.phone,
     required this.nationalId,
     this.notes = '',
+    this.products = const [],
+    this.microfinanceAmount,
+    this.acceptanceDeviceCount,
+    this.avgMonthlySales,
+    this.businessAddress,
+    this.activityTypeId,
+    this.activityTypeName,
     this.status = 'lead',
     this.createdBy,
     this.createdAt,
@@ -29,6 +43,13 @@ class Lead {
     String? phone,
     String? nationalId,
     String? notes,
+    List<String>? products,
+    double? Function()? microfinanceAmount,
+    int? Function()? acceptanceDeviceCount,
+    double? Function()? avgMonthlySales,
+    String? Function()? businessAddress,
+    String? Function()? activityTypeId,
+    String? Function()? activityTypeName,
     String? status,
     String? createdBy,
     DateTime? createdAt,
@@ -39,6 +60,25 @@ class Lead {
       phone: phone ?? this.phone,
       nationalId: nationalId ?? this.nationalId,
       notes: notes ?? this.notes,
+      products: products ?? this.products,
+      microfinanceAmount: microfinanceAmount != null
+          ? microfinanceAmount()
+          : this.microfinanceAmount,
+      acceptanceDeviceCount: acceptanceDeviceCount != null
+          ? acceptanceDeviceCount()
+          : this.acceptanceDeviceCount,
+      avgMonthlySales: avgMonthlySales != null
+          ? avgMonthlySales()
+          : this.avgMonthlySales,
+      businessAddress: businessAddress != null
+          ? businessAddress()
+          : this.businessAddress,
+      activityTypeId: activityTypeId != null
+          ? activityTypeId()
+          : this.activityTypeId,
+      activityTypeName: activityTypeName != null
+          ? activityTypeName()
+          : this.activityTypeName,
       status: status ?? this.status,
       createdBy: createdBy ?? this.createdBy,
       createdAt: createdAt ?? this.createdAt,
@@ -46,13 +86,23 @@ class Lead {
   }
 
   Map<String, dynamic> toJson() {
-    return {
+    final json = <String, dynamic>{
       'name': name,
       'phone': phone,
       'national_id': nationalId,
       'notes': notes,
+      'products': products,
+      'microfinance_amount': microfinanceAmount,
+      'acceptance_device_count': acceptanceDeviceCount,
+      'avg_monthly_sales': avgMonthlySales,
+      'business_address': businessAddress,
+      'activity_type_id': activityTypeId,
       'status': status,
     };
+    if (createdBy != null) {
+      json['created_by'] = createdBy;
+    }
+    return json;
   }
 
   factory Lead.fromJson(Map<String, dynamic> json) {
@@ -62,6 +112,15 @@ class Lead {
       phone: json['phone'] as String? ?? '',
       nationalId: json['national_id'] as String? ?? '',
       notes: json['notes'] as String? ?? '',
+      products: (json['products'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList() ?? const [],
+      microfinanceAmount: (json['microfinance_amount'] as num?)?.toDouble(),
+      acceptanceDeviceCount: json['acceptance_device_count'] as int?,
+      avgMonthlySales: (json['avg_monthly_sales'] as num?)?.toDouble(),
+      businessAddress: json['business_address'] as String?,
+      activityTypeId: json['activity_type_id'] as String?,
+      activityTypeName: json['activity_type_name'] as String?,
       status: json['status'] as String? ?? 'lead',
       createdBy: json['created_by'] as String?,
       createdAt: json['created_at'] != null
