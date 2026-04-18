@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # Single source of truth for the ABIs built. Every loop below reads $ABIS
+      # so verify / scan / rename / upload cannot silently diverge.
+      ABIS: armeabi-v7a arm64-v8a x86_64
 
     steps:
       - name: Checkout
@@ -60,18 +64,19 @@ jobs:
       - name: Flutter analyze
         run: flutter analyze
 
-      - name: Build release APK
+      - name: Build release APKs (split per ABI)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           : "${SUPABASE_URL:?SUPABASE_URL secret is required — set it in repo Settings → Secrets and variables → Actions}"
           : "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY secret is required — set it in repo Settings → Secrets and variables → Actions}"
-          flutter build apk --release \
+          flutter build apk --release --split-per-abi \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+          ls -lh build/app/outputs/flutter-apk/
 
-      - name: Verify APK signature
+      - name: Verify APK signatures
         run: |
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
           if [ -z "$APKSIGNER" ]; then
@@ -79,40 +84,62 @@ jobs:
             exit 1
           fi
           echo "Using: $APKSIGNER"
-          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk
+          for abi in $ABIS; do
+            APK="build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            if [ ! -f "$APK" ]; then
+              echo "::error::expected per-ABI APK not found: $APK"
+              exit 1
+            fi
+            echo "=== Verifying $abi ==="
+            "$APKSIGNER" verify --print-certs "$APK"
+          done
 
       - name: Secret scan (decompile + grep)
         run: |
           sudo apt-get install -y apktool
-          apktool d build/app/outputs/flutter-apk/app-release.apk -o decompiled/ -f
-          echo "=== Scanning for forbidden secrets ==="
-          # -l emits filenames only; matching content is never echoed to the log.
-          if MATCHES=$(grep -rlE "service_role|supabase_service_role|SERVICE_ROLE_KEY" decompiled/); then
-            echo "::error::service_role key detected in APK — BLOCKING"
-            echo "Matching files (content suppressed to avoid leaking secrets):"
-            printf '%s\n' "$MATCHES"
-            exit 1
-          fi
-          JWT_COUNT=$(grep -rcE "eyJ[A-Za-z0-9_-]{20,}" decompiled/ 2>/dev/null \
-                      | awk -F: '{s+=$2} END {print s+0}')
-          echo "Scan clean. JWT-like tokens found in APK: $JWT_COUNT (expected: anon key occurrences only)"
+          # Forbidden-secret patterns. None of these should ever appear in a
+          # shipped APK; any match hard-blocks the pilot.
+          #   - service_role / SERVICE_ROLE_KEY : Supabase admin JWT
+          #   - storePassword / keyPassword     : keystore creds from key.properties
+          #   - \b[23][0-9]{13}\b               : 14-digit Egyptian National ID
+          #                                       (starts with century code 2 or 3)
+          FORBIDDEN='service_role|supabase_service_role|SERVICE_ROLE_KEY|storePassword|keyPassword|KEYSTORE_PASSWORD|KEY_PASSWORD|\b[23][0-9]{13}\b'
+          for abi in $ABIS; do
+            APK="build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            DEST="decompiled-${abi}"
+            echo "=== Decompiling $abi ==="
+            apktool d "$APK" -o "$DEST" -f
+            echo "=== Scanning $abi for forbidden secrets ==="
+            # -l emits filenames only; matching content is never echoed to the log.
+            if MATCHES=$(grep -rlE "$FORBIDDEN" "$DEST"); then
+              echo "::error::forbidden secret detected in $abi APK — BLOCKING (service_role / keystore password / National ID pattern)"
+              echo "Matching files (content suppressed to avoid leaking secrets):"
+              printf '%s\n' "$MATCHES"
+              exit 1
+            fi
+            JWT_COUNT=$(grep -rcE "eyJ[A-Za-z0-9_-]{20,}" "$DEST" 2>/dev/null \
+                        | awk -F: '{s+=$2} END {print s+0}')
+            echo "$abi scan clean. JWT-like tokens found: $JWT_COUNT (expected: anon key occurrences only)"
+          done
 
-      - name: Sanitize version and rename APK
+      - name: Sanitize version and rename APKs
         run: |
           VERSION_SAFE=$(printf '%s' "${{ inputs.version_name }}" | tr -cd '[:alnum:]._-')
           if [ -z "$VERSION_SAFE" ]; then
             echo "::error::version_name contained no allowed characters ([A-Za-z0-9._-])"
             exit 1
           fi
-          cp build/app/outputs/flutter-apk/app-release.apk \
-             "build/app/outputs/flutter-apk/aman-v${VERSION_SAFE}.apk"
-          ls -lh build/app/outputs/flutter-apk/
+          for abi in $ABIS; do
+            cp "build/app/outputs/flutter-apk/app-${abi}-release.apk" \
+               "build/app/outputs/flutter-apk/aman-v${VERSION_SAFE}-${abi}.apk"
+          done
+          ls -lh build/app/outputs/flutter-apk/aman-v*.apk
           echo "VERSION_SAFE=$VERSION_SAFE" >> "$GITHUB_ENV"
 
-      - name: Upload APK artifact
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: aman-pilot-apk-v${{ env.VERSION_SAFE }}
-          path: build/app/outputs/flutter-apk/aman-v${{ env.VERSION_SAFE }}.apk
+          name: aman-pilot-apks-v${{ env.VERSION_SAFE }}
+          path: build/app/outputs/flutter-apk/aman-v${{ env.VERSION_SAFE }}-*.apk
           retention-days: 30
           if-no-files-found: error
