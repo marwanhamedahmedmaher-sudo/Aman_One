@@ -30,6 +30,10 @@ dev_dependencies:
 
 patrol:
   app_name: Aman Sales App
+  # patrol_cli 4.x defaults the test directory to `patrol_test/`, but we
+  # keep our tests in Flutter's conventional `integration_test/` location.
+  # Pointing the CLI here avoids a rename.
+  test_dir: integration_test
   android:
     package_name: com.aman.aman_sales_app
 
