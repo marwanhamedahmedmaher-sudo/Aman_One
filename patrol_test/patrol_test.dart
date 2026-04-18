@@ -101,14 +101,25 @@ Future<void> _loginAsTestRep(PatrolIntegrationTester $) async {
   final phoneDigits =
       _testPhone.startsWith('+20') ? '0${_testPhone.substring(3)}' : _testPhone;
 
-  // The phone field sits inside a Directionality(ltr) wrapper. There is
-  // exactly one TextField on the screen, so matching by type is unambiguous.
   await $(TextField).enterText(phoneDigits);
+  // pumpAndSettle between enterText and tap so the TextEditingController
+  // change has fully propagated before the tap handler reads it. Without
+  // it we observed the password screen's empty-password guard firing even
+  // though enterText had ostensibly populated the field.
+  await $.pumpAndSettle();
+  print('[patrol] phone entered ($phoneDigits), tapping "تسجيل الدخول"');
   await $('\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644').tap(); // تسجيل الدخول
+  await $.pumpAndSettle();
 
-  // PasswordScreen — enter password and tap "\u062f\u062e\u0648\u0644" (دخول).
+  // Wait for the password screen to actually arrive before typing.
+  await $('\u062f\u062e\u0648\u0644')
+      .waitUntilVisible(timeout: const Duration(seconds: 15)); // دخول button
   await $(TextField).enterText(_testPassword);
+  await $.pumpAndSettle();
+  print('[patrol] password entered (len=${_testPassword.length}), tapping "دخول"');
   await $('\u062f\u062e\u0648\u0644').tap();
+  await $.pumpAndSettle();
+  print('[patrol] login tap fired');
 }
 
 Future<void> _dismissBiometricDialogOrWaitForHome(
@@ -170,6 +181,26 @@ void _reportScreenState(PatrolIntegrationTester $) {
   }
   final spinners = find.byType(CircularProgressIndicator).evaluate().length;
   print('[patrol] CircularProgressIndicator count = $spinners');
+
+  // Dump every Text widget's content so we see exactly what's rendering.
+  // Limited to first 40 to keep logs bounded. This is the definitive
+  // answer to "what screen am I on?" when the named markers don't match.
+  final texts = find.byType(Text).evaluate().toList();
+  print('[patrol] Text widget count = ${texts.length}');
+  var i = 0;
+  for (final el in texts.take(40)) {
+    final w = el.widget;
+    String? data;
+    if (w is Text) data = w.data ?? w.textSpan?.toPlainText();
+    print('[patrol] text[$i]=${data ?? "<null/span>"}');
+    i++;
+  }
+  // Also dump navigator route if the app is still running a MaterialApp.
+  try {
+    final mat =
+        find.byType(MaterialApp).evaluate().firstOrNull?.widget as MaterialApp?;
+    print('[patrol] MaterialApp.home.type = ${mat?.home.runtimeType}');
+  } catch (_) {}
 }
 
 Future<void> _createLead(
