@@ -145,22 +145,29 @@ jobs:
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
 
-            # patrol_cli 4.x's positional arg is interpreted as a path
-            # relative to `test_dir` (now defaults to `patrol_test/`), so
-            # the file-path approach failed with "Directory .../patrol_test
-            # doesn't exist". We pin `test_dir: integration_test` in
-            # pubspec.yaml's patrol block and run the directory-default
-            # invocation — patrol_cli will discover patrol_test.dart via
-            # its normal test-file enumeration.
-            # --verbose surfaces patrol_cli's per-step progress (APK build,
-            # install, instrumentation start, test execution). Without it the
-            # "Executing tests" step can go silent for 15+ min when the test
-            # APK hangs on launch, leaving us no idea where it stuck.
-            patrol test --verbose \
-              --dart-define=SUPABASE_URL="$SUPABASE_URL" \
-              --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
-              --dart-define=PATROL_TEST_PHONE="$PATROL_TEST_PHONE" \
-              --dart-define=PATROL_TEST_PASSWORD="$PATROL_TEST_PASSWORD"
+            # Stream app-level logs (Flutter debugPrint, AndroidRuntime
+            # crashes, ActivityManager lifecycle) into a file we dump on exit.
+            # Without this, patrol_cli runs tests via adb instrumentation but
+            # doesn't pipe app stdout back — so an app-side hang looks like
+            # pure CI silence. Filtering to these tags keeps the log focused
+            # and skips noisy system spam.
+            adb logcat -c
+            adb logcat -v time \
+              flutter:V AndroidRuntime:E ActivityManager:W DartVM:V '*:S' \
+              > /tmp/logcat.txt 2>&1 &
+            LOGCAT_PID=$!
+            trap 'echo "::group::Captured logcat (app-side log)"; cat /tmp/logcat.txt || true; echo "::endgroup::"; kill $LOGCAT_PID 2>/dev/null || true' EXIT
+
+            # patrol_cli 4.x: discovers tests in `patrol_test/` by default.
+            # --verbose surfaces per-step progress. `timeout` bounds the whole
+            # invocation at 12 min so a silent hang fails fast instead of
+            # burning the full 45-min job budget.
+            timeout --foreground --signal=TERM --kill-after=30s 12m \
+              patrol test --verbose \
+                --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+                --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+                --dart-define=PATROL_TEST_PHONE="$PATROL_TEST_PHONE" \
+                --dart-define=PATROL_TEST_PASSWORD="$PATROL_TEST_PASSWORD"
 
       - name: Upload Patrol artifacts on failure
         if: failure()
