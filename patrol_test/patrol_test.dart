@@ -1,3 +1,11 @@
+// ignore_for_file: avoid_print
+//
+// `print` (not `debugPrint`) is deliberate — Patrol's framework
+// intercepts `debugPrint` and routes it into its PATROL_LOG JSON
+// channel, making it hard to grep in the CI logcat stream. `print`
+// writes to stdout which lands in logcat as `I/flutter` alongside
+// the test's normal output.
+
 // Aman Sales App — Patrol golden-path regression test.
 //
 // Runs on a real Android emulator against the live pilot Supabase project.
@@ -107,29 +115,61 @@ Future<void> _dismissBiometricDialogOrWaitForHome(
     PatrolIntegrationTester $) async {
   // The biometric opt-in dialog appears on devices with biometric hw + no
   // stored credentials. CI emulators don't have biometric hw, so the dialog
-  // is reliably absent there. Earlier we used a while-loop polling
-  // `$.pump(500ms)` to race the dialog against the home greeting — but that
-  // loop appeared to hang (27+ min CI wallclock before cancellation),
-  // likely because `$.pump()` under Patrol can block indefinitely if the
-  // framework is waiting on a pending frame the app never schedules.
-  //
-  // Patrol-idiomatic replacement: one short non-blocking check for the
-  // dialog, then a long wait for home. Handles both branches cleanly
-  // without any custom timing code.
+  // is reliably absent there.
   final laterButton = $('\u0644\u0627\u062d\u0642\u0627\u064b'); // لاحقا
-  await $.pumpAndSettle(
-    duration: const Duration(milliseconds: 500),
-    timeout: const Duration(seconds: 10),
-  );
+  try {
+    await $.pumpAndSettle(
+      duration: const Duration(milliseconds: 500),
+      timeout: const Duration(seconds: 10),
+    );
+  } catch (_) {
+    // pumpAndSettle times out on continuously animating widgets (e.g. loading
+    // spinner stuck on the login screen). Don't fail here — the wait below
+    // will surface the real problem with better context.
+  }
   if (laterButton.exists) {
     await laterButton.tap();
   }
 
-  // Wait up to 60s for the home greeting. Generous cap covers slow CI
-  // Supabase round-trips; if it still doesn't appear the test fails with
-  // a clear "waitUntilVisible timeout" from Patrol.
-  await $(RegExp(r'\u0623\u0647\u0644\u0627')) // "أهلا ..."
-      .waitUntilVisible(timeout: const Duration(seconds: 60));
+  // Wait up to 60s for the home greeting. If it doesn't appear, dump what
+  // IS on screen — login almost certainly stayed on a non-home screen
+  // (password, change-password, forgot-password, or a loading spinner).
+  final homeGreeting = $(RegExp(r'\u0623\u0647\u0644\u0627')); // "أهلا ..."
+  try {
+    await homeGreeting.waitUntilVisible(timeout: const Duration(seconds: 60));
+  } catch (e) {
+    // Use `print` rather than `debugPrint` — Patrol intercepts debugPrint
+    // into its PATROL_LOG JSON channel which we can't easily grep.
+    print('[patrol] HOME GREETING TIMEOUT — snapshotting screen state');
+    _reportScreenState($);
+    rethrow;
+  }
+}
+
+// Best-effort check of which screen the app is actually on when the home
+// greeting fails to appear. Checks for known Arabic anchors from each
+// auth-adjacent screen plus error markers. Every line prefixed `[patrol]`
+// so we can grep the CI LOGCAT| stream.
+void _reportScreenState(PatrolIntegrationTester $) {
+  final checks = <String, String>{
+    'phone_entry:تسجيل الدخول': '\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644',
+    'password:دخول': '\u062f\u062e\u0648\u0644',
+    'password:كلمة المرور': '\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
+    'change_password:تعيين كلمة مرور جديدة': '\u062a\u0639\u064a\u064a\u0646 \u0643\u0644\u0645\u0629 \u0645\u0631\u0648\u0631 \u062c\u062f\u064a\u062f\u0629',
+    'change_password:حفظ': '\u062d\u0641\u0638',
+    'forgot_password:نسيت كلمة المرور': '\u0646\u0633\u064a\u062a \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
+    'error:فشل تسجيل الدخول': '\u0641\u0634\u0644 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644',
+    'error:بيانات الدخول غير صحيحة': '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062f\u062e\u0648\u0644 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d\u0629',
+    'error:يرجى إدخال كلمة المرور': '\u064a\u0631\u062c\u0649 \u0625\u062f\u062e\u0627\u0644 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
+    'main_shell:الرئيسية': '\u0627\u0644\u0631\u0626\u064a\u0633\u064a\u0629',
+    'biometric:لاحقا': '\u0644\u0627\u062d\u0642\u0627\u064b',
+  };
+  for (final entry in checks.entries) {
+    final hit = $(entry.value).exists;
+    print('[patrol] screen_marker ${entry.key} -> $hit');
+  }
+  final spinners = find.byType(CircularProgressIndicator).evaluate().length;
+  print('[patrol] CircularProgressIndicator count = $spinners');
 }
 
 Future<void> _createLead(
