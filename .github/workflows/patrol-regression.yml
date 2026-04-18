@@ -70,8 +70,10 @@ jobs:
 
       - name: Install Patrol CLI
         # Version-pinned so a breaking release of patrol_cli doesn't silently
-        # fail the pipeline. Bump in lockstep with the `patrol` dev dep.
-        run: dart pub global activate patrol_cli 3.9.1
+        # fail the pipeline. Bump in lockstep with the `patrol` dev dep —
+        # patrol_cli versioning is independent of the patrol library but the
+        # major number must match at runtime (both on 4.x as of 2026-04).
+        run: dart pub global activate patrol_cli 4.3.1
 
       - name: Enable KVM for Android emulator
         # Hardware accel shaves emulator boot from ~minutes to ~30s. Without
