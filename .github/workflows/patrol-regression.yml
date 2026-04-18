@@ -15,7 +15,7 @@ on:
       - 'lib/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
-      - 'integration_test/**'
+      - 'patrol_test/**'
       - 'android/**'
       - '.github/workflows/patrol-regression.yml'
   # Temporary push trigger on the introducing branch so the workflow can
@@ -29,7 +29,7 @@ on:
       - 'lib/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
-      - 'integration_test/**'
+      - 'patrol_test/**'
       - 'android/**'
       - '.github/workflows/patrol-regression.yml'
 
