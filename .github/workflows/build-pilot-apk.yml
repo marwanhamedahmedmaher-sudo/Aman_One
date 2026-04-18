@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # Single source of truth for the ABIs built. Every loop below reads $ABIS
+      # so verify / scan / rename / upload cannot silently diverge.
+      ABIS: armeabi-v7a arm64-v8a x86_64
 
     steps:
       - name: Checkout
@@ -80,7 +84,7 @@ jobs:
             exit 1
           fi
           echo "Using: $APKSIGNER"
-          for abi in armeabi-v7a arm64-v8a x86_64; do
+          for abi in $ABIS; do
             APK="build/app/outputs/flutter-apk/app-${abi}-release.apk"
             if [ ! -f "$APK" ]; then
               echo "::error::expected per-ABI APK not found: $APK"
@@ -93,15 +97,22 @@ jobs:
       - name: Secret scan (decompile + grep)
         run: |
           sudo apt-get install -y apktool
-          for abi in armeabi-v7a arm64-v8a x86_64; do
+          # Forbidden-secret patterns. None of these should ever appear in a
+          # shipped APK; any match hard-blocks the pilot.
+          #   - service_role / SERVICE_ROLE_KEY : Supabase admin JWT
+          #   - storePassword / keyPassword     : keystore creds from key.properties
+          #   - \b[23][0-9]{13}\b               : 14-digit Egyptian National ID
+          #                                       (starts with century code 2 or 3)
+          FORBIDDEN='service_role|supabase_service_role|SERVICE_ROLE_KEY|storePassword|keyPassword|KEYSTORE_PASSWORD|KEY_PASSWORD|\b[23][0-9]{13}\b'
+          for abi in $ABIS; do
             APK="build/app/outputs/flutter-apk/app-${abi}-release.apk"
             DEST="decompiled-${abi}"
             echo "=== Decompiling $abi ==="
             apktool d "$APK" -o "$DEST" -f
             echo "=== Scanning $abi for forbidden secrets ==="
             # -l emits filenames only; matching content is never echoed to the log.
-            if MATCHES=$(grep -rlE "service_role|supabase_service_role|SERVICE_ROLE_KEY" "$DEST"); then
-              echo "::error::service_role key detected in $abi APK — BLOCKING"
+            if MATCHES=$(grep -rlE "$FORBIDDEN" "$DEST"); then
+              echo "::error::forbidden secret detected in $abi APK — BLOCKING (service_role / keystore password / National ID pattern)"
               echo "Matching files (content suppressed to avoid leaking secrets):"
               printf '%s\n' "$MATCHES"
               exit 1
@@ -118,7 +129,7 @@ jobs:
             echo "::error::version_name contained no allowed characters ([A-Za-z0-9._-])"
             exit 1
           fi
-          for abi in armeabi-v7a arm64-v8a x86_64; do
+          for abi in $ABIS; do
             cp "build/app/outputs/flutter-apk/app-${abi}-release.apk" \
                "build/app/outputs/flutter-apk/aman-v${VERSION_SAFE}-${abi}.apk"
           done
