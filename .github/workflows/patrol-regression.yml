@@ -156,15 +156,15 @@ jobs:
 
             # Stream app-side logs (Flutter debugPrint, AndroidRuntime,
             # ActivityManager) directly to the CI stdout in real time — so
-            # a Flutter-side hang or crash is visible the moment it happens,
-            # not only after the script exits. `stdbuf -oL` forces line
-            # buffering so lines appear immediately rather than in large
-            # blocks. Prefixing with "LOGCAT|" makes the interleaved output
-            # readable against patrol_cli's own progress.
+            # a Flutter-side hang or crash is visible the moment it
+            # happens, not only after the script exits. Must stay on ONE
+            # line: reactivecircus/android-emulator-runner passes the
+            # script to `sh -c` line-by-line (each [command] line is its
+            # own `sh -c` invocation), so multi-line paren subshells die
+            # with "Syntax error: end of file unexpected".
+            # `sed -u` = unbuffered, flushes every line immediately.
             adb logcat -c
-            (stdbuf -oL adb logcat -v time \
-              flutter:V AndroidRuntime:E ActivityManager:W DartVM:V '*:S' \
-              2>&1 | stdbuf -oL sed 's/^/LOGCAT| /') &
+            adb logcat -v time flutter:V AndroidRuntime:E ActivityManager:W DartVM:V '*:S' 2>&1 | sed -u 's/^/LOGCAT| /' &
             LOGCAT_PID=$!
             trap 'kill $LOGCAT_PID 2>/dev/null || true' EXIT
 
