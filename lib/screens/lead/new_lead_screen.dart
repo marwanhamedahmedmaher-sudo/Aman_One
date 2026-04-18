@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/merchant.dart';
 import '../../providers/merchant_provider.dart';
 import '../../providers/tasks_provider.dart';
+import '../../services/analytics.dart';
 import '../../theme/app_theme.dart';
 import 'lead_success_screen.dart';
 
@@ -38,6 +39,9 @@ class _NewLeadScreenState extends State<NewLeadScreen> {
       _phoneController.text = widget.initialLead!.phone;
       _notesController.text = widget.initialLead!.notes;
     }
+    Analytics.track('lead_form_opened', properties: {
+      'from_task': widget.taskAssignmentId != null,
+    });
   }
 
   @override
@@ -80,6 +84,7 @@ class _NewLeadScreenState extends State<NewLeadScreen> {
     final validationError = provider.validate();
     if (validationError != null) {
       provider.setError(validationError);
+      Analytics.track('lead_validation_failed');
       return;
     }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/merchant.dart';
+import '../services/analytics.dart';
 
 class MerchantListProvider extends ChangeNotifier {
   final _supabase = Supabase.instance.client;
@@ -71,14 +72,25 @@ class MerchantListProvider extends ChangeNotifier {
         'reveal_national_id',
         params: {'p_merchant_id': merchantId},
       );
+      await Analytics.track('nid_revealed', properties: {
+        'merchant_id': merchantId,
+      });
       return result as String?;
     } on PostgrestException catch (e) {
       _error = e.message;
       notifyListeners();
+      await Analytics.track('nid_reveal_failed', properties: {
+        'merchant_id': merchantId,
+        'pg_code': e.code,
+      });
       return null;
     } catch (_) {
       _error = 'حدث خطأ أثناء عرض الرقم القومي';
       notifyListeners();
+      await Analytics.track('nid_reveal_failed', properties: {
+        'merchant_id': merchantId,
+        'pg_code': null,
+      });
       return null;
     }
   }

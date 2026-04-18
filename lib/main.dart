@@ -7,6 +7,7 @@ import 'providers/merchant_list_provider.dart';
 import 'providers/tasks_provider.dart';
 import 'screens/auth/phone_entry_screen.dart';
 import 'screens/main/main_shell.dart';
+import 'services/analytics.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -18,6 +19,11 @@ Future<void> main() async {
     anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY',
         defaultValue: 'placeholder-key'),
   );
+
+  await Analytics.init(
+    token: const String.fromEnvironment('MIXPANEL_TOKEN', defaultValue: ''),
+  );
+  await Analytics.track('app_started');
 
   runApp(const AmanApp());
 }

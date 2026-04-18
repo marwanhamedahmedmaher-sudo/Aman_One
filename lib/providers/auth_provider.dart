@@ -3,6 +3,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user.dart' as app;
+import '../services/analytics.dart';
 
 class AuthResult {
   final bool success;
@@ -64,6 +65,7 @@ class AuthProvider extends ChangeNotifier {
       if (response.user == null) {
         _loading = false;
         notifyListeners();
+        await Analytics.track('login_failed', properties: {'reason': 'no_user'});
         return const AuthResult(
             success: false, error: '\u0641\u0634\u0644 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644');
       }
@@ -81,6 +83,12 @@ class AuthProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
 
+      await Analytics.identify(response.user!.id);
+      await Analytics.track('login_succeeded', properties: {
+        'must_change_password': mustChange,
+        'role': _user?.role,
+      });
+
       return AuthResult(
         success: true,
         mustChangePassword: mustChange,
@@ -88,10 +96,15 @@ class AuthProvider extends ChangeNotifier {
     } on AuthException catch (e) {
       _loading = false;
       notifyListeners();
+      await Analytics.track('login_failed', properties: {
+        'reason': 'auth_exception',
+        'code': e.statusCode,
+      });
       return AuthResult(success: false, error: e.message);
     } catch (e) {
       _loading = false;
       notifyListeners();
+      await Analytics.track('login_failed', properties: {'reason': 'unexpected'});
       return AuthResult(
           success: false,
           error:
@@ -115,6 +128,7 @@ class AuthProvider extends ChangeNotifier {
     _loading = true;
     notifyListeners();
 
+    final wasForced = _user?.mustChangePassword ?? false;
     try {
       await _supabase.auth.updateUser(
         UserAttributes(password: newPassword),
@@ -134,10 +148,15 @@ class AuthProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
 
+      await Analytics.track('password_changed', properties: {
+        'was_forced': wasForced,
+      });
+
       return const AuthResult(success: true);
     } catch (e) {
       _loading = false;
       notifyListeners();
+      await Analytics.track('password_change_failed');
       return AuthResult(
           success: false,
           error:
@@ -171,6 +190,7 @@ class AuthProvider extends ChangeNotifier {
   Future<void> enableBiometric(String phone, String password) async {
     await _secureStorage.write(key: 'bio_phone', value: phone);
     await _secureStorage.write(key: 'bio_password', value: password);
+    await Analytics.track('biometric_enabled');
   }
 
   /// Sign in using biometric authentication
@@ -186,6 +206,7 @@ class AuthProvider extends ChangeNotifier {
       );
 
       if (!authenticated) {
+        await Analytics.track('biometric_login_failed', properties: {'reason': 'user_cancelled'});
         return const AuthResult(
             success: false,
             error:
@@ -196,12 +217,14 @@ class AuthProvider extends ChangeNotifier {
       final password = await _secureStorage.read(key: 'bio_password');
 
       if (phone == null || password == null) {
+        await Analytics.track('biometric_login_failed', properties: {'reason': 'no_credentials'});
         return const AuthResult(
             success: false,
             error:
                 '\u0644\u0645 \u064a\u062a\u0645 \u0627\u0644\u0639\u062b\u0648\u0631 \u0639\u0644\u0649 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062f\u062e\u0648\u0644');
       }
 
+      await Analytics.track('biometric_login_attempted');
       return signIn(phone, password);
     } catch (_) {
       return const AuthResult(
@@ -230,5 +253,7 @@ class AuthProvider extends ChangeNotifier {
     _user = null;
     _currentPhone = '';
     notifyListeners();
+    await Analytics.track('logged_out');
+    await Analytics.reset();
   }
 }

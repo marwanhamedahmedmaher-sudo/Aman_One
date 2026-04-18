@@ -68,12 +68,15 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          MIXPANEL_TOKEN: ${{ secrets.MIXPANEL_TOKEN }}
         run: |
           : "${SUPABASE_URL:?SUPABASE_URL secret is required — set it in repo Settings → Secrets and variables → Actions}"
           : "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY secret is required — set it in repo Settings → Secrets and variables → Actions}"
+          # MIXPANEL_TOKEN is optional — if empty, Analytics routes to NoopSink.
           flutter build apk --release --split-per-abi \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
-            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=MIXPANEL_TOKEN="$MIXPANEL_TOKEN"
           ls -lh build/app/outputs/flutter-apk/
 
       - name: Verify APK signatures
