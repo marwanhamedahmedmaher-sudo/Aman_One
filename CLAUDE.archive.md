@@ -4,6 +4,139 @@ Session log entries rotated out of `CLAUDE.md`. Newest first within this file.
 
 ---
 
+### Session: 2026-04-16 (late-late night) — Wave 2 Agent F: `flutter analyze` clean
+**Duration:** ~5m
+**Focus:** Run `flutter analyze` to confirm zero static-analysis issues before Wave 3 release APK build.
+**Completed:**
+- `flutter analyze` → **No issues found!** (ran in 46.9s). 18 packages have newer versions but all locked behind dependency constraints — not pilot-relevant.
+- Wave 2 Agent F → done. Wave 2 fully complete (G keystore + F analyze + H Dashboard auth all green).
+**Decisions:** None — confirmation step only.
+**Backlog impact:** No backlog row — Day 1 Wave plan only. Pilot APK build (Wave 3) is now unblocked.
+**Blockers now:** 0 active.
+**Files changed:**
+- `CLAUDE.md` (this entry, rotation)
+- `CLAUDE.archive.md` (rotated entry)
+**Next Session:**
+1. **Wave 3 — release APK build**: `flutter build apk --release --dart-define=SUPABASE_URL=https://yflwudkmhqwoscipscbb.supabase.co --dart-define=SUPABASE_ANON_KEY=<prod-anon-key>`. Verify with `apksigner verify --print-certs`. Rename to `aman-v1.0.0-pilot.apk`. Confirm size < 50MB for WhatsApp.
+2. **Agent J — decompile + secret-scan**: `apktool d` then grep for `service_role` / `supabase_service` / `password`. Only `SUPABASE_ANON_KEY` permitted; any `service_role` hit is pilot-blocking.
+3. **Marwan manual** (before Wave 3): back up `.jks` to cloud + USB.
+4. Install CodeRabbit GitHub App on the repo.
+
+---
+
+### Session: 2026-04-16 (late night) — Day 1 wrap: Dashboard auth confirmed, keystore backup plan locked, P2-7 logged
+**Duration:** ~20m
+**Focus:** Close out Day 1 pilot prep — confirm Dashboard auth settings done, agree keystore backup pattern, reconcile all three pilot docs (CLAUDE.md / PILOT-DEPLOYMENT-CHECKLIST.md / PILOT-READINESS-TODOS.md), log post-pilot password-manager upgrade as P2-7.
+**Completed:**
+- **Dashboard auth settings confirmed by Marwan**: phone provider ON, SMS provider UNCONFIGURED, "Allow new users to sign up" OFF, 2FA enabled on admin. P0-1 note updated to reflect confirmation. This was flagged as the single biggest pilot-breaking risk — now closed.
+- **Keystore backup pattern agreed**: encrypted 7z archive + cloud drive + USB backup, keystore password memorized. **Bitwarden / 1Password upgrade deferred to post-pilot** (logged as P2-7). Pragmatic pilot-grade decision — matches existing "Pilot-grade keystore passwords acceptable for POC" stance.
+- **P2-7 backlog row added** to CLAUDE.md: post-pilot password-manager upgrade covering both (a) keystore file + passwords and (b) service-role key migration from `.env.admin` plaintext. Hard triggers documented: prod rollout beyond pilot cohort OR second admin joining.
+- **PILOT-DEPLOYMENT-CHECKLIST.md reconciled**: §1A auth settings items all ticked `[x]` with "DONE 2026-04-16, confirmed by Marwan" stamp. §1B keystore items updated — Generate keystore `[x]`, Store in password manager `[~]` with interim note ("encrypted 7z + cloud + USB backup, password memorized — upgrade deferred to P2-7"), Create `key.properties` `[x]`, update `build.gradle.kts` `[x]`, add `.gitignore` entries `[x]`. Service-role key storage item flagged as deferred to P2-7.
+- **PILOT-READINESS-TODOS.md Day 1 reconciled**: items 1 (Dashboard auth), 2 (keystore), 3 (key.properties) all marked DONE 2026-04-16 inline.
+**Decisions:**
+- **Accept 7z + cloud + USB backup for pilot** instead of password manager — ~30 min saved today, risk bounded to pilot window, upgrade path documented in P2-7. Losing the `.jks` kills future pilot APK updates (cryptographic signature must match across versions), so the cloud + USB redundancy is the mitigation.
+- **No new features / scope creep tonight** — reconciliation and doc hygiene only, consistent with PILOT-READINESS-TODOS.md "decision discipline during pilot week" rule #1.
+**Backlog impact:** P0-1 note updated (auth settings confirmed). P2-7 added. No DONE transitions beyond those already logged in prior sessions.
+**Blockers now:** 0 active.
+**Files changed:**
+- `CLAUDE.md` (P0-1 auth-settings confirmation note, P2-7 added, this session entry)
+- `docs/PILOT-DEPLOYMENT-CHECKLIST.md` (§1A + §1B ticks, P2-7 cross-references)
+- `docs/PILOT-READINESS-TODOS.md` (Day 1 items 1-3 marked DONE)
+- `CLAUDE.archive.md` (rotated entry)
+**Next Session:**
+1. **Wave 2 remainder**: run `flutter analyze` (Agent F), confirm clean before APK build.
+2. **Wave 3**: build release APK — `flutter build apk --release --dart-define=SUPABASE_URL=https://yflwudkmhqwoscipscbb.supabase.co --dart-define=SUPABASE_ANON_KEY=<prod-anon-key>`. Verify signing with `apksigner verify --print-certs`. Rename to `aman-v1.0.0-pilot.apk`. Check size < 50MB for WhatsApp.
+3. **Agent J — decompile + secret-scan**: `apktool d aman-v1.0.0-pilot.apk -o decompiled/` then `grep -ri "service_role\|supabase_service\|password" decompiled/`. Only `SUPABASE_ANON_KEY` permitted. Any `service_role` hit is pilot-blocking.
+4. **Install CodeRabbit GitHub App** on the repo (2 min at https://github.com/apps/coderabbitai). Open a throwaway PR to confirm it reads `.github/REVIEW_CONTEXT.md` + CLAUDE.md.
+5. Marwan manual: back up `.jks` to cloud + USB before Wave 3.
+
+---
+
+### Session: 2026-04-16 (night) — Wave 2 part 1: release keystore generated + wired
+**Duration:** ~15m
+**Focus:** Agent G — generate the Android release keystore and wire it into the Gradle build so Wave 3 (release APK build) can sign end-to-end.
+**Completed:**
+- **Keystore generated**: `C:\Users\marwan.haahmed\aman-release.jks` via Android Studio's bundled `keytool.exe` (`C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe`). RSA 4096, validity 10000 days, alias `aman`, DN `CN=Aman Sales, OU=Pilot, O=Aman, L=Cairo, ST=Cairo, C=EG`. File size 4372 bytes (normal for RSA 4096).
+- **`android/key.properties` created** and wired to keystore path (`C:/Users/marwan.haahmed/aman-release.jks`, forward slashes for Gradle on Windows) + alias `aman`. Passwords filled in manually by Marwan (kept out of Claude context). Gitignore verified: `android/.gitignore:12` catches `key.properties`; root `.gitignore` catches `*.jks`.
+- **`build.gradle.kts` already wired from Wave 1** — `keystoreProperties` loader + `signingConfigs.release` + conditional `buildTypes.release` signing (falls back to debug if `key.properties` missing). No change needed.
+- **Keytool path discovery**: `keytool` not on system PATH; located Android Studio's JBR copy and invoked via `& "..."` PowerShell call operator.
+**Decisions:**
+- **Keystore location outside the repo tree** (`$HOME\aman-release.jks`) — absolute path in `key.properties.storeFile` so the .jks never has to sit inside the project folder. Reduces accidental-commit risk.
+- **Same password for keystore and key** (pressed Enter on third prompt) — acceptable for pilot-grade POC, matches existing "Pilot-grade keystore passwords acceptable for POC" decision.
+**Backlog impact:** No backlog item directly tracks keystore (it lives under Day 1 Wave plan). Wave 2 Agent G → done.
+**Blockers now:** 0 active.
+**Pending user action (before Wave 3):**
+1. **Back up the .jks in 3 places** — password manager (attach file + store password in same entry), encrypted cloud drive, optional encrypted USB. Losing the keystore kills all future pilot APK updates.
+2. Confirm `android/key.properties` has the real password substituted for both `REPLACE_WITH_YOUR_KEYSTORE_PASSWORD` placeholders.
+**Files changed:**
+- `android/key.properties` (new, gitignored — contains passwords)
+- `CLAUDE.md` (session entry, rotation)
+- `CLAUDE.archive.md` (rotated entry)
+**Next Session:**
+1. Wave 2 remainder: Agent F (`flutter analyze`), Agent H (manual: verify prod Dashboard auth settings).
+2. Wave 3: build release APK with `flutter build apk --release --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...` (prod credentials), confirm signed with release key via `apksigner verify --print-certs`, decompile + security scan (Agent J).
+
+---
+
+### Session: 2026-04-16 (evening) — Day 1 pilot prep: Wave 1 completed, prod Supabase live
+**Duration:** ~30m
+**Focus:** Execute Day 1 Wave 1 of parallel pilot deployment plan. Android manifest fix, Gradle signing config, .gitignore hardening, prod Supabase project creation + 15 migrations.
+**Completed:**
+- **Agent A — AndroidManifest.xml**: Added `INTERNET` + `USE_BIOMETRIC` permissions to main manifest (were only in debug/profile). Changed `android:label` from "aman_sales_app" to "أمان".
+- **Agent B — build.gradle.kts**: Added `keystoreProperties` loader, `signingConfigs.release` block, conditional release signing (falls back to debug if no keystore). **Pinned `minSdk = 23`** (required for `local_auth` biometric). Agent output was truncated mid-file — rebuilt manually.
+- **Agent C — .gitignore + keystore template**: Created `android/key.properties.example` with template values. Added `*.keystore`, `*.jks`, `android/key.properties` to `.gitignore`. Agent missed the .gitignore edit — fixed manually.
+- **Agent D — Dart code audit**: Agent ran but did not persist report. Re-run recommended in Wave 2.
+- **Agent E — Prod Supabase setup**: Created prod project `yflwudkmhqwoscipscbb` (eu-west-1, Postgres 17, $0/month free tier). Applied all 15 migrations (001→015) via MCP `execute_sql`. Verified: RLS on 6 tables, 10 activity types seeded, 5 RPCs confirmed (`set_claim`, `is_admin`, `reveal_national_id`, `distribute_daily_tasks`, `refill_rep_tasks`). Security advisors: 0 lints. Prod anon key and URL recorded.
+- **Pilot deployment docs created**: `docs/PILOT-DEPLOYMENT-CHECKLIST.md` (full 4-day checklist) + `docs/DAY1-EXECUTION-PLAN.md` (3-wave parallel agent architecture with copy-paste prompts).
+**Decisions:**
+- **Distribution: direct APK sideload** via WhatsApp/Google Drive. No Play Store, no Firebase App Distribution.
+- **Timeline: 3-4 days** (April 16-19). Aggressive — skip nice-to-haves, focus on prod + build + security + provisioning.
+- **Pilot-grade keystore passwords** acceptable for POC. Must upgrade before any production release.
+**Backlog impact:** P0-1 updated (prod project live). No new P1/P2 items.
+**Blockers now:** 0 active.
+**Files changed:**
+- `android/app/src/main/AndroidManifest.xml` (permissions + label)
+- `android/app/build.gradle.kts` (signing config + minSdk)
+- `.gitignore` (keystore entries)
+- `android/key.properties.example` (new)
+- `docs/PILOT-DEPLOYMENT-CHECKLIST.md` (new)
+- `docs/DAY1-EXECUTION-PLAN.md` (new)
+- `CLAUDE.md` (prod project, P0-1 update, session entry)
+- `CLAUDE.archive.md` (rotated entry)
+**Next Session:**
+1. **Wave 2**: Flutter analyze (F), generate keystore (G), verify prod Supabase auth settings (H — manual by Marwan in Dashboard).
+2. **Wave 3**: Build release APK with `--dart-define` for prod credentials (I), decompile + security scan (J).
+3. Marwan manual: Dashboard auth settings (phone ON, SMS OFF, signup OFF, 2FA).
+
+---
+
+### Session: 2026-04-16 (morning) — P1-12: pre-pilot code review agent wired up
+**Duration:** ~20m
+**Focus:** Research AI PR review tools, pick one, and ship a review-context doc + config so any PR going into the pilot cut is reviewed against fintech/PDPL standards before merge.
+**Completed:**
+- **Research + recommendation.** Compared CodeRabbit, Greptile, GitHub Copilot, Cursor reviewer. Picked **CodeRabbit** — PR-native, assertive profile, best precision-to-noise ratio, $24/dev/mo, honors external markdown guidelines via `knowledge_base.code_guidelines.filePatterns`. Greptile has higher raw catch rate (82%) but much higher noise and $30/dev/mo — not worth it on a 1-dev POC. Copilot code review is thinnest. Documented trade-off in delivery.
+- **`.github/REVIEW_CONTEXT.md`** (new, ~9KB): the review ruleset. Covers project brief, explicit "do NOT flag" scope decisions (no OTP, no KYC images, no English UI, etc.), review priorities, and detailed must-flag rules for: NID handling + `reveal_national_id` RPC discipline, auth/session flow, RLS + SECURITY DEFINER + `search_path` pinning, secrets hygiene, migration hygiene, trigger NULL-`auth.uid()` handling, SELECT-* on merchants, RTL correctness, async/`context.mounted`, Arabic error mapping. Includes a good/bad review-comment example, file-level quick reference, and a 10-item pre-pilot reviewer checklist.
+- **`.coderabbit.yaml`** (new): assertive profile, auto-review on main+develop, 5 path-scoped `path_instructions` (migrations, providers, screens, scripts, .env*), 5 `pre_merge_checks` as hard gates (RLS enabled on new tables, SECURITY DEFINER hardening, no plaintext NID leak, secrets hygiene, RTL-safe UI as warning). `path_filters` exclude generated + native platform dirs. `knowledge_base.code_guidelines.filePatterns` points at REVIEW_CONTEXT.md + ARCHITECTURE.md + PILOT-DEPLOYMENT-CHECKLIST.md; CodeRabbit also auto-discovers CLAUDE.md.
+- **YAML validated** (`python3 -c "yaml.safe_load(...)"` — OK). Fixed a duplicate `reviews:` key on first draft.
+**Decisions:**
+- **CodeRabbit over Greptile** — precision over raw catch rate on a 1-dev POC, half the monthly cost, zero-config GitHub install.
+- **Assertive profile, not chill** — fintech defaults to over-report. Turn down post-pilot if noise becomes a problem.
+- **5 hard pre-merge gates, 1 warning** — anything that could leak plaintext NID or break RLS is `error`. RTL is `warning` (catches regressions without blocking non-UI PRs).
+**Backlog impact:** P1-12 → DONE 2026-04-16.
+**Blockers now:** 0 active. **Activation dependency:** CodeRabbit GitHub App must be installed on the repo for the config to take effect — takes ~2 minutes at https://github.com/apps/coderabbitai.
+**Files changed:**
+- `.github/REVIEW_CONTEXT.md` (new)
+- `.coderabbit.yaml` (new)
+- `CLAUDE.md` (P1-12, session entry, rotation)
+- `CLAUDE.archive.md` (rotated entry)
+**Next Session:**
+1. Install CodeRabbit GitHub App on the repo, open a throwaway test PR, confirm it reads REVIEW_CONTEXT.md and posts comments.
+2. Tune noise after the first 2-3 real PRs — downgrade any over-triggered gate to `warning`.
+3. Consider a follow-on `docs/CODE-REVIEW-ONBOARDING.md` for a second maintainer (when/if one joins).
+4. P1-1/2/3 remain open but deprioritized for pilot.
+
+---
+
 ### Session: 2026-04-15 (afternoon) — P1-9 implemented: merchant list + profile + reveal RPC
 **Duration:** ~25m
 **Focus:** Full implementation of P1-9 — merchant list screen, merchant profile screen with masked NID + reveal-with-audit, Supabase RPC, home screen wiring. Also closed P1-6 and P1-8.

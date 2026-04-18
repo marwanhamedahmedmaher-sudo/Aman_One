@@ -1,0 +1,144 @@
+name: Patrol Regression
+
+# Runs the Patrol golden-path integration test on a headless Android
+# emulator against prod Supabase. Every test run creates exactly one
+# merchant row tagged with `PATROL-TEST-<timestamp>-<random>`; the test
+# cleans up after itself via the rep's JWT (RLS-scoped, no service-role
+# in CI). Pre-flight gate before the Build Pilot APK workflow — open a
+# PR that touches the app and this runs automatically.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'integration_test/**'
+      - 'android/**'
+      - '.github/workflows/patrol-regression.yml'
+
+concurrency:
+  # Serialize runs on the same ref — the test hits shared prod Supabase,
+  # parallel runs raise the collision risk on the dedup constraints even
+  # with the random run tag. One run at a time per ref.
+  group: patrol-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  patrol:
+    name: Golden-path regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.6'
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Install Patrol CLI
+        # Version-pinned so a breaking release of patrol_cli doesn't silently
+        # fail the pipeline. Bump in lockstep with the `patrol` dev dep.
+        run: dart pub global activate patrol_cli 3.9.1
+
+      - name: Enable KVM for Android emulator
+        # Hardware accel shaves emulator boot from ~minutes to ~30s. Without
+        # this, the emulator-runner action falls back to software rendering
+        # and test runs easily blow through 45min.
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: AVD cache
+        id: avd-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-api33-google_apis-x86_64-v1
+
+      - name: Create AVD snapshot
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: echo "AVD snapshot generated."
+
+      - name: Run Patrol golden-path test
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          PATROL_TEST_PHONE: ${{ secrets.PATROL_TEST_PHONE }}
+          PATROL_TEST_PASSWORD: ${{ secrets.PATROL_TEST_PASSWORD }}
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            : "${SUPABASE_URL:?SUPABASE_URL secret is required}"
+            : "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY secret is required}"
+            : "${PATROL_TEST_PHONE:?PATROL_TEST_PHONE secret is required — phone of the durable Patrol test rep (E.164 or 01XXXXXXXXX)}"
+            : "${PATROL_TEST_PASSWORD:?PATROL_TEST_PASSWORD secret is required — password of the durable Patrol test rep (post-rotation)}"
+
+            # Wait for the emulator to fully boot before handing off to Patrol.
+            adb wait-for-device
+            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+
+            patrol test \
+              --target integration_test/patrol_test.dart \
+              --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+              --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+              --dart-define=PATROL_TEST_PHONE="$PATROL_TEST_PHONE" \
+              --dart-define=PATROL_TEST_PASSWORD="$PATROL_TEST_PASSWORD"
+
+      - name: Upload Patrol artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: patrol-failure-logs
+          path: |
+            build/app/reports/androidTests/**
+            build/patrol/**
+          if-no-files-found: ignore
+          retention-days: 14

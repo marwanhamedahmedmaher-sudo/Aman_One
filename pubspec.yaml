@@ -18,11 +18,20 @@ dependencies:
   local_auth: ^2.3.0
   flutter_secure_storage: ^9.2.4
   url_launcher: ^6.2.0
+  mixpanel_flutter: ^2.3.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   flutter_lints: ^6.0.0
+  patrol: ^3.13.0
+
+patrol:
+  app_name: Aman Sales App
+  android:
+    package_name: com.aman.aman_sales_app
 
 flutter:
   uses-material-design: true
