@@ -152,7 +152,11 @@ jobs:
             # pubspec.yaml's patrol block and run the directory-default
             # invocation — patrol_cli will discover patrol_test.dart via
             # its normal test-file enumeration.
-            patrol test \
+            # --verbose surfaces patrol_cli's per-step progress (APK build,
+            # install, instrumentation start, test execution). Without it the
+            # "Executing tests" step can go silent for 15+ min when the test
+            # APK hangs on launch, leaving us no idea where it stuck.
+            patrol test --verbose \
               --dart-define=SUPABASE_URL="$SUPABASE_URL" \
               --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
               --dart-define=PATROL_TEST_PHONE="$PATROL_TEST_PHONE" \

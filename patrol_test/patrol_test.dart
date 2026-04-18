@@ -35,21 +35,32 @@ final _config = const PatrolTesterConfig(
 );
 
 void main() {
-  // Fail fast if secrets weren't wired — the test would otherwise silently
-  // submit "" as the password and get a confusing login-failed stack trace.
-  if (_testPhone.isEmpty || _testPassword.isEmpty) {
-    throw StateError(
-      'PATROL_TEST_PHONE and PATROL_TEST_PASSWORD must be passed via '
-      '--dart-define. See docs/PATROL-RUNBOOK.md.',
-    );
-  }
-
   patrolTest(
     'golden path: login → create lead → list → profile → reveal NID',
     config: _config,
     ($) async {
+      // Breadcrumbs: if patrol_cli hangs silently in CI again, the missing
+      // breadcrumb tells us exactly how far the isolate got. Previously a
+      // top-of-main StateError on missing secrets killed the isolate before
+      // patrolTest() was even registered, giving us 17 min of total silence.
+      debugPrint('[patrol] entering test body');
+
+      // Moved from top-of-main so a missing --dart-define surfaces as a test
+      // failure (with a stack trace in patrol logs) instead of a silent
+      // isolate death that hangs CI for its 45-minute timeout budget.
+      expect(_testPhone.isNotEmpty, isTrue,
+          reason:
+              'PATROL_TEST_PHONE was empty — --dart-define did not reach the '
+              'test bundle. Check .github/workflows/patrol-regression.yml.');
+      expect(_testPassword.isNotEmpty, isTrue,
+          reason:
+              'PATROL_TEST_PASSWORD was empty — --dart-define did not reach '
+              'the test bundle.');
+
+      debugPrint('[patrol] dart-defines OK, launching app');
       await app.main();
       await $.pumpAndSettle();
+      debugPrint('[patrol] app settled, beginning golden path');
 
       await _loginAsTestRep($);
       await _dismissBiometricDialogOrWaitForHome($);
