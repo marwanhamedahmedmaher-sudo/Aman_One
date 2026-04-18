@@ -52,8 +52,7 @@ void main() {
       await $.pumpAndSettle();
 
       await _loginAsTestRep($);
-      await _dismissBiometricDialogIfPresent($);
-      await _assertOnHome($);
+      await _dismissBiometricDialogOrWaitForHome($);
 
       final testPhone = generateTestPhone();
       final testNid = generateTestNationalId();
@@ -62,7 +61,7 @@ void main() {
       await _assertLeadSuccess($);
       await _openMerchantListFromHome($);
       await _openMerchantProfile($);
-      await _revealNationalId($);
+      await _revealNationalId($, testNid);
     },
   );
 
@@ -93,23 +92,40 @@ Future<void> _loginAsTestRep(PatrolIntegrationTester $) async {
   await $('\u062f\u062e\u0648\u0644').tap();
 }
 
-Future<void> _dismissBiometricDialogIfPresent(PatrolIntegrationTester $) async {
-  // Opt-in dialog appears only if the device has biometric hardware but no
-  // credentials are enrolled. CI emulators usually have neither, so the
-  // dialog is absent. Short timeout keeps the test fast in the common case.
+Future<void> _dismissBiometricDialogOrWaitForHome(
+    PatrolIntegrationTester $) async {
+  // The biometric opt-in dialog appears on some devices after a successful
+  // password login (hardware present, no credentials stored). On CI emulators
+  // it is usually absent. A short fixed timeout here created a race: on slow
+  // cold-booted emulators the dialog could surface after the timeout elapsed,
+  // leaving the modal on screen so subsequent assertions hit the wrong tree.
+  //
+  // Instead, race between two post-login outcomes and terminate on whichever
+  // arrives first — this is resilient to both fast and slow transitions:
+  //   (a) the dialog's "later" button appears → tap it, then re-wait for home
+  //   (b) the home greeting appears directly → no dialog was shown, return
   final laterButton = $('\u0644\u0627\u062d\u0642\u0627\u064b'); // لاحقا
-  try {
-    await laterButton.waitUntilVisible(timeout: const Duration(seconds: 3));
-    await laterButton.tap();
-  } catch (_) {
-    // No dialog shown — carry on.
-  }
-}
+  final homeGreeting = $(RegExp(r'\u0623\u0647\u0644\u0627')); // "أهلا ..."
+  final deadline = DateTime.now().add(const Duration(seconds: 45));
 
-Future<void> _assertOnHome(PatrolIntegrationTester $) async {
-  // HomeScreen greets with "أهلا <firstName>!". Matching the prefix is
-  // enough — the name depends on which rep the secret points at.
-  await $(RegExp(r'\u0623\u0647\u0644\u0627')).waitUntilVisible();
+  while (DateTime.now().isBefore(deadline)) {
+    await $.pump(const Duration(milliseconds: 500));
+    if (laterButton.evaluate().isNotEmpty) {
+      await laterButton.tap();
+      // After dismissing, wait for home. This uses the 30s config default.
+      await homeGreeting.waitUntilVisible();
+      return;
+    }
+    if (homeGreeting.evaluate().isNotEmpty) {
+      return;
+    }
+  }
+  // If neither the dialog nor the home screen appeared within 45s, fail loud
+  // with a pointer to what went wrong — otherwise later finders would surface
+  // a less informative timeout deep in the golden path.
+  throw StateError(
+      'Post-login: neither biometric dialog nor home greeting appeared '
+      'within 45s. Check login flow and Arabic copy ("أهلا", "لاحقا").');
 }
 
 Future<void> _createLead(
@@ -171,14 +187,16 @@ Future<void> _openMerchantProfile(PatrolIntegrationTester $) async {
       .waitUntilVisible();
 }
 
-Future<void> _revealNationalId(PatrolIntegrationTester $) async {
+Future<void> _revealNationalId(
+    PatrolIntegrationTester $, String expectedNid) async {
   // Before reveal: 14 masking bullets visible as NID placeholder.
   expect($('*' * 14), findsOneWidget);
   await $('\u0639\u0631\u0636').tap(); // عرض
 
-  // After reveal: bullets gone, real NID text present. Our generated NID
-  // starts with the fixed prefix 28501010 — match that to avoid smudging
-  // the assertion with the random suffix.
-  await $(RegExp(r'^28501010\d{6}$'))
-      .waitUntilVisible(timeout: const Duration(seconds: 10));
+  // After reveal: bullets gone, the EXACT NID submitted for this run is
+  // visible. Asserting the literal value (rather than just the generator's
+  // fixed prefix) catches a whole class of regressions: reveal-RPC returning
+  // the wrong merchant's NID, client-side masking/unmasking state drift,
+  // or Vault decryption off-by-one.
+  await $(expectedNid).waitUntilVisible(timeout: const Duration(seconds: 10));
 }

@@ -29,22 +29,49 @@ class Analytics {
 
   /// Attach all future events to this rep's distinct id (Supabase auth UUID).
   /// Call on login success and after a successful change-password rotation.
+  ///
+  /// Fail-open: a transient SDK/network failure must never break auth or
+  /// lead flows that `await` this call. All sink exceptions are caught and
+  /// logged in debug mode; production code proceeds as if the event fired.
   static Future<void> identify(String repId) async {
-    await _sink.identify(repId);
+    try {
+      await _sink.identify(repId);
+    } catch (e, st) {
+      _logFailure('identify', e, st);
+    }
   }
 
   /// Fire an event. [properties] must not contain merchant PII.
+  /// Fail-open — see [identify] for the rationale.
   static Future<void> track(
     String event, {
     Map<String, Object?> properties = const {},
   }) async {
     _assertNoPii(properties);
-    await _sink.track(event, properties);
+    try {
+      await _sink.track(event, properties);
+    } catch (e, st) {
+      _logFailure('track($event)', e, st);
+    }
   }
 
   /// Clear identity + buffered state. Call on logout.
+  /// Fail-open — see [identify] for the rationale.
   static Future<void> reset() async {
-    await _sink.reset();
+    try {
+      await _sink.reset();
+    } catch (e, st) {
+      _logFailure('reset', e, st);
+    }
+  }
+
+  static void _logFailure(String op, Object error, StackTrace st) {
+    if (kDebugMode) {
+      debugPrint('[analytics:error] $op failed: $error');
+    }
+    // Silently degrade in release builds. We never rethrow — rep-facing
+    // flows (login, lead submit, logout) must not break when the analytics
+    // vendor is unreachable.
   }
 
   static final _forbiddenKeyPattern = RegExp(

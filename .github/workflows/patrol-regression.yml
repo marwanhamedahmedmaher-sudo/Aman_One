@@ -112,7 +112,11 @@ jobs:
           arch: x86_64
           profile: pixel_6
           force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          # Omit `-no-snapshot` here — it disables BOTH save and load, which
+          # would render the AVD cache useless. The emulator-runner action
+          # persists AVD state after shutdown so the test step below can
+          # boot from the warm snapshot in ~15s instead of ~2min.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: echo "AVD snapshot generated."
 
@@ -153,8 +157,21 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: patrol-failure-logs
+          # Whitelist-only: upload ONLY text-ish diagnostics and screenshots.
+          # PATROL_TEST_PASSWORD is embedded in the compiled test APK as a
+          # Dart constant (via `const String.fromEnvironment`) — recoverable
+          # with `strings <apk>`. Using a blacklist of `.apk/.aab/.so/...`
+          # would leak via any extension we forget (.apks, .ap_, gzipped
+          # splits, native libs). Whitelist means no binary ever ships.
           path: |
-            build/app/reports/androidTests/**
-            build/patrol/**
+            build/app/reports/androidTests/**/*.html
+            build/app/reports/androidTests/**/*.xml
+            build/app/reports/androidTests/**/*.txt
+            build/patrol/**/*.log
+            build/patrol/**/*.txt
+            build/patrol/**/*.xml
+            build/patrol/**/*.json
+            build/patrol/**/*.png
+            build/patrol/**/*.jpg
           if-no-files-found: ignore
           retention-days: 14

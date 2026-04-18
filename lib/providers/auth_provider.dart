@@ -100,7 +100,12 @@ class AuthProvider extends ChangeNotifier {
         'reason': 'auth_exception',
         'code': e.statusCode,
       });
-      return AuthResult(success: false, error: e.message);
+      // Never surface raw backend English to the rep. Map the common codes
+      // to Arabic; fall back to the generic login-failed copy.
+      return AuthResult(
+        success: false,
+        error: _mapAuthExceptionToArabic(e),
+      );
     } catch (e) {
       _loading = false;
       notifyListeners();
@@ -195,6 +200,11 @@ class AuthProvider extends ChangeNotifier {
 
   /// Sign in using biometric authentication
   Future<AuthResult> signInWithBiometric() async {
+    // Record the attempt at the very start — every `failed` event must have
+    // a matching `attempted` for the funnel math to work. Previously this
+    // fired only AFTER both the prompt succeeded and credentials were found,
+    // so cancelled / missing-credential flows logged unpaired `failed`.
+    await Analytics.track('biometric_login_attempted');
     try {
       final authenticated = await _localAuth.authenticate(
         localizedReason:
@@ -206,7 +216,8 @@ class AuthProvider extends ChangeNotifier {
       );
 
       if (!authenticated) {
-        await Analytics.track('biometric_login_failed', properties: {'reason': 'user_cancelled'});
+        await Analytics.track('biometric_login_failed',
+            properties: {'reason': 'user_cancelled'});
         return const AuthResult(
             success: false,
             error:
@@ -217,21 +228,46 @@ class AuthProvider extends ChangeNotifier {
       final password = await _secureStorage.read(key: 'bio_password');
 
       if (phone == null || password == null) {
-        await Analytics.track('biometric_login_failed', properties: {'reason': 'no_credentials'});
+        await Analytics.track('biometric_login_failed',
+            properties: {'reason': 'no_credentials'});
         return const AuthResult(
             success: false,
             error:
                 '\u0644\u0645 \u064a\u062a\u0645 \u0627\u0644\u0639\u062b\u0648\u0631 \u0639\u0644\u0649 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062f\u062e\u0648\u0644');
       }
 
-      await Analytics.track('biometric_login_attempted');
       return signIn(phone, password);
     } catch (_) {
+      await Analytics.track('biometric_login_failed',
+          properties: {'reason': 'unexpected'});
       return const AuthResult(
           success: false,
           error:
               '\u0627\u0644\u0628\u0635\u0645\u0629 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629');
     }
+  }
+
+  /// Translate Supabase auth errors into user-facing Arabic copy. Anything
+  /// we don't have an explicit mapping for falls through to the generic
+  /// "فشل تسجيل الدخول" so we never show raw English to a rep.
+  String _mapAuthExceptionToArabic(AuthException e) {
+    final msg = e.message.toLowerCase();
+    if (msg.contains('invalid') && msg.contains('credentials')) {
+      // Phone or password wrong.
+      return '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062f\u062e\u0648\u0644 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d\u0629'; // بيانات الدخول غير صحيحة
+    }
+    if (msg.contains('disabled') || msg.contains('banned')) {
+      // Rep suspended via Dashboard "Ban user".
+      return '\u062a\u0645 \u062a\u0639\u0644\u064a\u0642 \u0627\u0644\u062d\u0633\u0627\u0628\u060c \u062a\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0625\u062f\u0627\u0631\u0629'; // تم تعليق الحساب، تواصل مع الإدارة
+    }
+    if (msg.contains('rate') && msg.contains('limit')) {
+      return '\u0645\u062d\u0627\u0648\u0644\u0627\u062a \u0643\u062b\u064a\u0631\u0629\u060c \u062d\u0627\u0648\u0644 \u0644\u0627\u062d\u0642\u0627\u064b'; // محاولات كثيرة، حاول لاحقاً
+    }
+    if (msg.contains('network') || msg.contains('connection')) {
+      return '\u062a\u0639\u0630\u0631 \u0627\u0644\u0627\u062a\u0635\u0627\u0644\u060c \u062a\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0625\u0646\u062a\u0631\u0646\u062a'; // تعذر الاتصال، تحقق من الإنترنت
+    }
+    // Catch-all.
+    return '\u0641\u0634\u0644 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644'; // فشل تسجيل الدخول
   }
 
   /// Clear biometric credentials
