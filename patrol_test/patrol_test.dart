@@ -105,38 +105,31 @@ Future<void> _loginAsTestRep(PatrolIntegrationTester $) async {
 
 Future<void> _dismissBiometricDialogOrWaitForHome(
     PatrolIntegrationTester $) async {
-  // The biometric opt-in dialog appears on some devices after a successful
-  // password login (hardware present, no credentials stored). On CI emulators
-  // it is usually absent. A short fixed timeout here created a race: on slow
-  // cold-booted emulators the dialog could surface after the timeout elapsed,
-  // leaving the modal on screen so subsequent assertions hit the wrong tree.
+  // The biometric opt-in dialog appears on devices with biometric hw + no
+  // stored credentials. CI emulators don't have biometric hw, so the dialog
+  // is reliably absent there. Earlier we used a while-loop polling
+  // `$.pump(500ms)` to race the dialog against the home greeting — but that
+  // loop appeared to hang (27+ min CI wallclock before cancellation),
+  // likely because `$.pump()` under Patrol can block indefinitely if the
+  // framework is waiting on a pending frame the app never schedules.
   //
-  // Instead, race between two post-login outcomes and terminate on whichever
-  // arrives first — this is resilient to both fast and slow transitions:
-  //   (a) the dialog's "later" button appears → tap it, then re-wait for home
-  //   (b) the home greeting appears directly → no dialog was shown, return
+  // Patrol-idiomatic replacement: one short non-blocking check for the
+  // dialog, then a long wait for home. Handles both branches cleanly
+  // without any custom timing code.
   final laterButton = $('\u0644\u0627\u062d\u0642\u0627\u064b'); // لاحقا
-  final homeGreeting = $(RegExp(r'\u0623\u0647\u0644\u0627')); // "أهلا ..."
-  final deadline = DateTime.now().add(const Duration(seconds: 45));
-
-  while (DateTime.now().isBefore(deadline)) {
-    await $.pump(const Duration(milliseconds: 500));
-    if (laterButton.evaluate().isNotEmpty) {
-      await laterButton.tap();
-      // After dismissing, wait for home. This uses the 30s config default.
-      await homeGreeting.waitUntilVisible();
-      return;
-    }
-    if (homeGreeting.evaluate().isNotEmpty) {
-      return;
-    }
+  await $.pumpAndSettle(
+    duration: const Duration(milliseconds: 500),
+    timeout: const Duration(seconds: 10),
+  );
+  if (laterButton.exists) {
+    await laterButton.tap();
   }
-  // If neither the dialog nor the home screen appeared within 45s, fail loud
-  // with a pointer to what went wrong — otherwise later finders would surface
-  // a less informative timeout deep in the golden path.
-  throw StateError(
-      'Post-login: neither biometric dialog nor home greeting appeared '
-      'within 45s. Check login flow and Arabic copy ("أهلا", "لاحقا").');
+
+  // Wait up to 60s for the home greeting. Generous cap covers slow CI
+  // Supabase round-trips; if it still doesn't appear the test fails with
+  // a clear "waitUntilVisible timeout" from Patrol.
+  await $(RegExp(r'\u0623\u0647\u0644\u0627')) // "أهلا ..."
+      .waitUntilVisible(timeout: const Duration(seconds: 60));
 }
 
 Future<void> _createLead(

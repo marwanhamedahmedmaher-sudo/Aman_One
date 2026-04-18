@@ -155,22 +155,25 @@ jobs:
             echo "PATROL_TEST_PASSWORD len=${#PATROL_TEST_PASSWORD}"
 
             # Stream app-side logs (Flutter debugPrint, AndroidRuntime,
-            # ActivityManager) into a file dumped on EXIT. Without this a
-            # Flutter-side crash looks like pure CI silence.
+            # ActivityManager) directly to the CI stdout in real time — so
+            # a Flutter-side hang or crash is visible the moment it happens,
+            # not only after the script exits. `stdbuf -oL` forces line
+            # buffering so lines appear immediately rather than in large
+            # blocks. Prefixing with "LOGCAT|" makes the interleaved output
+            # readable against patrol_cli's own progress.
             adb logcat -c
-            adb logcat -v time \
+            (stdbuf -oL adb logcat -v time \
               flutter:V AndroidRuntime:E ActivityManager:W DartVM:V '*:S' \
-              > /tmp/logcat.txt 2>&1 &
+              2>&1 | stdbuf -oL sed 's/^/LOGCAT| /') &
             LOGCAT_PID=$!
-            trap 'echo "::group::Captured logcat (app-side log)"; tail -c 200000 /tmp/logcat.txt 2>/dev/null || true; echo "::endgroup::"; kill $LOGCAT_PID 2>/dev/null || true' EXIT
+            trap 'kill $LOGCAT_PID 2>/dev/null || true' EXIT
 
-            # Write dart-defines to a JSON file. patrol_cli 4.x's `--dart-define`
-            # flag propagates to the MAIN app build but silently drops them on
-            # the TEST BUNDLE compile (confirmed by the previous run failing
-            # on `_testPhone.isEmpty` even though the secret was set). The
-            # `--dart-define-from-file` path is honored by both builds.
-            # jq -n -c builds valid JSON with correct escaping so values
-            # containing quotes, slashes, or unicode survive untouched.
+            # Write dart-defines to a JSON file. patrol_cli 4.x's
+            # `--dart-define` flag propagates to the MAIN app build but
+            # silently drops them on the TEST BUNDLE compile, confirmed by
+            # a previous run where `_testPhone.isEmpty` was true even
+            # though the secret was set. `--dart-define-from-file` is
+            # honored by both build steps.
             jq -n -c \
               --arg supa_url "$SUPABASE_URL" \
               --arg supa_key "$SUPABASE_ANON_KEY" \
@@ -180,9 +183,14 @@ jobs:
                 PATROL_TEST_PHONE:$phone, PATROL_TEST_PASSWORD:$password}' \
               > /tmp/patrol-defines.json
 
-            # `timeout 12m` bounds the invocation so a silent hang fails
-            # fast instead of burning the full 45-min job budget.
-            timeout --foreground --signal=TERM --kill-after=30s 12m \
+            # `timeout 10m` bounds the whole patrol_cli invocation. Drop
+            # `--foreground` from the previous revision — that flag keeps
+            # timeout in the same process group as its parent, which
+            # prevents it from signalling patrol's child tree (Gradle,
+            # JVM, adb). Without it, timeout creates a new process group
+            # and SIGTERM/SIGKILL reach every descendant. `--kill-after`
+            # escalates to SIGKILL 30s after the initial SIGTERM.
+            timeout --signal=TERM --kill-after=30s 10m \
               patrol test --verbose \
                 --dart-define-from-file=/tmp/patrol-defines.json
 
