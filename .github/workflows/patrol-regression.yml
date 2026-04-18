@@ -18,6 +18,20 @@ on:
       - 'integration_test/**'
       - 'android/**'
       - '.github/workflows/patrol-regression.yml'
+  # Temporary push trigger on the introducing branch so the workflow can
+  # validate itself before it lands on `main` (GitHub only evaluates
+  # `pull_request` triggers from workflows that already exist on the base
+  # branch, so the PR that introduces this file cannot trigger itself).
+  # Remove once merged to `main`.
+  push:
+    branches: [ci/split-per-abi]
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'integration_test/**'
+      - 'android/**'
+      - '.github/workflows/patrol-regression.yml'
 
 concurrency:
   # Serialize runs on the same ref — the test hits shared prod Supabase,
