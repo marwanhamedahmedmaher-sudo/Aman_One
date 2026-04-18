@@ -145,8 +145,12 @@ jobs:
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
 
-            patrol test \
-              --target integration_test/patrol_test.dart \
+            # patrol_cli 4.x takes the test target as a positional argument
+            # (the old `--target` flag was removed). The default test dir
+            # also changed from `integration_test/` to `patrol_test/` in 4.x,
+            # so we pass the explicit file path to stay in `integration_test/`
+            # (Flutter's conventional location — no reason to rename).
+            patrol test integration_test/patrol_test.dart \
               --dart-define=SUPABASE_URL="$SUPABASE_URL" \
               --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
               --dart-define=PATROL_TEST_PHONE="$PATROL_TEST_PHONE" \
