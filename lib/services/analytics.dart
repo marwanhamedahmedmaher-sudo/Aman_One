@@ -20,6 +20,12 @@ class Analytics {
         trackAutomaticEvents: false,
         optOutTrackingDefault: false,
       );
+      // Point SDK at Mixpanel's EU data-residency endpoint. Our project
+      // is hosted in EU; the SDK defaults to `api.mixpanel.com` (US)
+      // which silently drops events for EU projects. Hardcoded because
+      // the residency is a project-level property, not an env-specific
+      // one — if we ever migrate to US, swap this one line.
+      mp.setServerURL('https://api-eu.mixpanel.com');
       _sink = _MixpanelSink(mp);
     } catch (_) {
       // Fail open — analytics must never break the app.
