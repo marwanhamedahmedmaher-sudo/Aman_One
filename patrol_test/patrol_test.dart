@@ -261,12 +261,18 @@ Future<void> _createLead(
       .containing('\u0627\u062f\u062e\u0644 \u0639\u062f\u062f \u0627\u0644\u0623\u062c\u0647\u0632\u0629') // ادخل عدد الأجهزة
       .enterText('3');
 
+  // Notes + submit live at the bottom of the form. By the time we reach them
+  // the soft keyboard has been up for five previous fields and may now cover
+  // them entirely, so waitUntilVisible rejects them as not hit-testable even
+  // though they're rendered. `.scrollTo()` walks to the enclosing Scrollable
+  // (the form's SingleChildScrollView) and scrolls the target into view.
   await $(TextField)
       .containing('\u0623\u0636\u0641 \u0645\u0644\u0627\u062d\u0638\u0627\u062a (\u0627\u062e\u062a\u064a\u0627\u0631\u064a)') // أضف ملاحظات (اختياري)
+      .scrollTo()
       .enterText(taggedNotes());
 
   // Submit — button reads "تسجيل".
-  await $('\u062a\u0633\u062c\u064a\u0644').tap();
+  await $('\u062a\u0633\u062c\u064a\u0644').scrollTo().tap();
 }
 
 Future<void> _assertLeadSuccess(PatrolIntegrationTester $) async {
