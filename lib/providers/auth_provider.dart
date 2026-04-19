@@ -96,6 +96,7 @@ class AuthProvider extends ChangeNotifier {
     } on AuthException catch (e) {
       _loading = false;
       notifyListeners();
+      debugPrint('[auth:signIn] AuthException (${e.statusCode}): ${e.message}');
       await Analytics.track('login_failed', properties: {
         'reason': 'auth_exception',
         'code': e.statusCode,
@@ -106,10 +107,19 @@ class AuthProvider extends ChangeNotifier {
         success: false,
         error: _mapAuthExceptionToArabic(e),
       );
-    } catch (e) {
+    } catch (e, st) {
       _loading = false;
       notifyListeners();
-      await Analytics.track('login_failed', properties: {'reason': 'unexpected'});
+      // Surface the real exception type + message in logcat so Patrol CI
+      // can grep it. Previously this path swallowed the cause, leaving us
+      // to stare at `reason: unexpected` with no way to tell a socket
+      // error from a JWT parse failure from a storage write fault.
+      debugPrint('[auth:signIn] unexpected (${e.runtimeType}): $e');
+      debugPrint('[auth:signIn] stack: $st');
+      await Analytics.track('login_failed', properties: {
+        'reason': 'unexpected',
+        'error_type': e.runtimeType.toString(),
+      });
       return AuthResult(
           success: false,
           error:

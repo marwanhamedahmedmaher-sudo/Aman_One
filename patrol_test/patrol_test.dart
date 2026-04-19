@@ -142,19 +142,42 @@ Future<void> _dismissBiometricDialogOrWaitForHome(
     await laterButton.tap();
   }
 
-  // Wait up to 60s for the home greeting. If it doesn't appear, dump what
-  // IS on screen — login almost certainly stayed on a non-home screen
-  // (password, change-password, forgot-password, or a loading spinner).
+  // Wait up to 60s for the home greeting. Poll every second so a visible
+  // login-error SnackBar ("حدث خطأ غير متوقع" / "بيانات الدخول غير صحيحة")
+  // fails the test immediately instead of burning the full 60s budget on
+  // a screen we already know is broken. The error copy lives only on the
+  // Scaffold SnackBar and fades after ~4s — the poll catches it while it
+  // is still up.
   final homeGreeting = $(RegExp(r'\u0623\u0647\u0644\u0627')); // "أهلا ..."
-  try {
-    await homeGreeting.waitUntilVisible(timeout: const Duration(seconds: 60));
-  } catch (e) {
-    // Use `print` rather than `debugPrint` — Patrol intercepts debugPrint
-    // into its PATROL_LOG JSON channel which we can't easily grep.
-    print('[patrol] HOME GREETING TIMEOUT — snapshotting screen state');
-    _reportScreenState($);
-    rethrow;
+  final unexpectedError =
+      $('\u062d\u062f\u062b \u062e\u0637\u0623 \u063a\u064a\u0631 \u0645\u062a\u0648\u0642\u0639'); // حدث خطأ غير متوقع
+  final badCredentials =
+      $('\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062f\u062e\u0648\u0644 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d\u0629'); // بيانات الدخول غير صحيحة
+
+  final deadline = DateTime.now().add(const Duration(seconds: 60));
+  while (DateTime.now().isBefore(deadline)) {
+    if (homeGreeting.exists) return;
+    if (unexpectedError.exists) {
+      print('[patrol] LOGIN FAILED (unexpected error SnackBar) — bailing early');
+      _reportScreenState($);
+      throw TestFailure(
+          'Login produced "حدث خطأ غير متوقع" SnackBar — see [auth:signIn] '
+          'lines in logcat for the underlying exception.');
+    }
+    if (badCredentials.exists) {
+      print('[patrol] LOGIN FAILED (bad credentials) — check PATROL_TEST_PASSWORD secret');
+      throw TestFailure(
+          'Login produced "بيانات الدخول غير صحيحة" SnackBar — rotate the '
+          'Patrol test rep password or update the PATROL_TEST_PASSWORD secret.');
+    }
+    try {
+      await $.pump(const Duration(seconds: 1));
+    } catch (_) {}
   }
+
+  print('[patrol] HOME GREETING TIMEOUT — snapshotting screen state');
+  _reportScreenState($);
+  throw TestFailure('Home greeting "أهلا" did not appear within 60s.');
 }
 
 // Best-effort check of which screen the app is actually on when the home
