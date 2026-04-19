@@ -157,6 +157,15 @@ Future<void> _dismissBiometricDialogOrWaitForHome(
   final deadline = DateTime.now().add(const Duration(seconds: 60));
   while (DateTime.now().isBefore(deadline)) {
     if (homeGreeting.exists) return;
+    // Biometric opt-in can appear LATE — emulator biometric-availability
+    // checks are async and sometimes resolve only after the first pump.
+    // Re-dismiss inside the loop so a slow dialog doesn't block the
+    // home-greeting wait. Safe to tap every iteration since the dialog
+    // disappears on the first tap.
+    if (laterButton.exists) {
+      print('[patrol] biometric dialog appeared late, dismissing');
+      await laterButton.tap();
+    }
     if (unexpectedError.exists) {
       print('[patrol] LOGIN FAILED (unexpected error SnackBar) — bailing early');
       _reportScreenState($);
