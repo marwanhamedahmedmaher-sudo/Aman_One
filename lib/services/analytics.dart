@@ -80,8 +80,17 @@ class Analytics {
     // vendor is unreachable.
   }
 
+  // `\bpassword\b` (not bare `password`) so that boolean flags whose NAME
+  // contains "password" — notably Supabase's `must_change_password` column,
+  // which carries a rotation flag, not a credential — do not trigger a false
+  // positive. A key literally named `password` (the only realistic shape for
+  // leaking a credential value) still matches.
+  //
+  // `phone` / `national_id` / `nid_hash` / `merchant_name` / `full_name`
+  // intentionally stay as substring matches — we want to catch `rep_phone`,
+  // `merchant_national_id`, etc., because those genuinely carry PII.
   static final _forbiddenKeyPattern = RegExp(
-    r'national_id|nid_hash|\bnid\b|phone|password|merchant_name|full_name',
+    r'national_id|nid_hash|\bnid\b|phone|\bpassword\b|merchant_name|full_name',
     caseSensitive: false,
   );
 
