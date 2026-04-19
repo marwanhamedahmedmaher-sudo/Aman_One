@@ -42,7 +42,7 @@ class AmanApp extends StatelessWidget {
       child: Consumer<AuthProvider>(
         builder: (context, auth, _) {
           return MaterialApp(
-            title: '\u0623\u0645\u0627\u0646',
+            title: 'Jawaker Aman',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             locale: const Locale('ar', 'EG'),
