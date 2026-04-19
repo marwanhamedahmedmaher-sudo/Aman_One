@@ -233,30 +233,36 @@ Future<void> _createLead(
 }) async {
   await $('\u062a\u0633\u062c\u064a\u0644 \u0639\u0645\u064a\u0644 \u062c\u062f\u064a\u062f').tap(); // تسجيل عميل جديد
 
-  // The lead form has many TextFields in the same shape — narrow each one
-  // by its label so reorderings don't break the test.
-  await $('\u0627\u062f\u062e\u0644 \u0627\u0633\u0645 \u0627\u0644\u062a\u0627\u062c\u0631') // ادخل اسم التاجر
+  // Every TextField on this form is anchored by its `InputDecoration.hintText`.
+  // Targeting the hint Text directly fails `waitUntilVisible` because Flutter's
+  // InputDecorator wraps the hint in IgnorePointer, making the inner RichText
+  // non-hit-testable. Walk up to the enclosing TextField (which IS hit-testable)
+  // via `.containing(pattern)` — this keeps the selector readable and resilient
+  // to form reorderings without requiring Keys on every field.
+  await $(TextField)
+      .containing('\u0627\u062f\u062e\u0644 \u0627\u0633\u0645 \u0627\u0644\u062a\u0627\u062c\u0631') // ادخل اسم التاجر
       .enterText(taggedName());
 
-  // Phone field — anchor on its hint "01XXXXXXXXX".
-  await $('01XXXXXXXXX').enterText(phone);
+  await $(TextField).containing('01XXXXXXXXX').enterText(phone);
+  await $(TextField).containing('XXXXXXXXXXXXXX').enterText(nationalId);
 
-  // National ID field — anchor on its hint "XXXXXXXXXXXXXX".
-  await $('XXXXXXXXXXXXXX').enterText(nationalId);
-
-  // Products — all three, to exercise every conditional detail field.
+  // Products — all three, to exercise every conditional detail field. Product
+  // rows are tappable GestureDetectors around Text labels, not TextFields, so
+  // the plain-text selector works.
   await $('Microfinance').tap();
-  await $('\u0627\u062f\u062e\u0644 \u0627\u0644\u0645\u0628\u0644\u063a') // ادخل المبلغ
+  await $(TextField)
+      .containing('\u0627\u062f\u062e\u0644 \u0627\u0644\u0645\u0628\u0644\u063a') // ادخل المبلغ
       .enterText('50000');
 
   await $('BP POS').tap();
 
   await $('Acceptance POS').tap();
-  await $('\u0627\u062f\u062e\u0644 \u0639\u062f\u062f \u0627\u0644\u0623\u062c\u0647\u0632\u0629') // ادخل عدد الأجهزة
+  await $(TextField)
+      .containing('\u0627\u062f\u062e\u0644 \u0639\u062f\u062f \u0627\u0644\u0623\u062c\u0647\u0632\u0629') // ادخل عدد الأجهزة
       .enterText('3');
 
-  // Notes — required carrier for patrolRunTag.
-  await $('\u0623\u0636\u0641 \u0645\u0644\u0627\u062d\u0638\u0627\u062a (\u0627\u062e\u062a\u064a\u0627\u0631\u064a)') // أضف ملاحظات (اختياري)
+  await $(TextField)
+      .containing('\u0623\u0636\u0641 \u0645\u0644\u0627\u062d\u0638\u0627\u062a (\u0627\u062e\u062a\u064a\u0627\u0631\u064a)') // أضف ملاحظات (اختياري)
       .enterText(taggedNotes());
 
   // Submit — button reads "تسجيل".
