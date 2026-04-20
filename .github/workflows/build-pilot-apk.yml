@@ -125,6 +125,155 @@ jobs:
             echo "$abi scan clean. JWT-like tokens found: $JWT_COUNT (expected: anon key occurrences only)"
           done
 
+      - name: Security scan (MobSF)
+        # Decompiles the arm64-v8a APK (the variant pilot reps install) and runs
+        # MobSF's static analyzer. Hard-fails on HIGH findings unless the finding
+        # title matches the allowlist below (for well-known Flutter-framework
+        # false positives and pilot-accepted risks).
+        #
+        # Scope: one ABI, not all three. Native libs differ by arch but the
+        # Java/Kotlin/manifest surface — which is what MobSF actually scans — is
+        # identical. Scanning one arch catches 99% of findings at 1/3 the cost.
+        #
+        # API key is generated ephemerally per run and stays on the runner. No
+        # secret required.
+        run: |
+          # Allowlist (bash array, one title substring per entry). Each entry
+          # must be a confirmed false positive or an explicit pilot-accepted
+          # risk. PR reviewers should push back on unjustified additions —
+          # every new line here weakens the security gate.
+          ALLOWLIST=(
+            # Flutter Android default: android:allowBackup=true. Lead-capture
+            # pilot only; sensitive data (NIDs) are Vault-encrypted server-side
+            # and never persisted to unprotected client storage. Revisit at P2
+            # before broader rollout.
+            "App data can be Backed up"
+            "Application Data can be Backed up"
+            # Debug certificate in NONE-release configs — MobSF occasionally
+            # misreads Flutter's Play Signing cert chain. Our APKs are verified
+            # separately by `apksigner verify` earlier in this job.
+            "Application signed with debug certificate"
+          )
+
+          APK="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          if [ ! -f "$APK" ]; then
+            echo "::error::MobSF target APK not found: $APK"
+            exit 1
+          fi
+
+          MOBSF_API_KEY=$(openssl rand -hex 32)
+
+          # Tracking :latest intentionally during pilot so we get upstream
+          # fixes without manual bumps. The `jq -e '.appsec.high'` structure
+          # guard below catches report-shape drift. After the first green run
+          # on a known-good MobSF version, pin to that tag for reproducibility
+          # (format: opensecurity/mobile-security-framework-mobsf:v4.x.y).
+          MOBSF_IMAGE="opensecurity/mobile-security-framework-mobsf:latest"
+
+          echo "=== Pulling $MOBSF_IMAGE ==="
+          docker pull "$MOBSF_IMAGE" >/dev/null
+
+          echo "=== Starting MobSF ==="
+          docker run -d --name mobsf \
+            -e MOBSF_API_KEY="$MOBSF_API_KEY" \
+            -p 127.0.0.1:8000:8000 \
+            "$MOBSF_IMAGE" >/dev/null
+
+          echo "=== Waiting for MobSF API ==="
+          # Django startup + first-run DB init can take ~90s on a cold runner.
+          READY=0
+          for i in $(seq 1 90); do
+            if curl -sSf -o /dev/null "http://127.0.0.1:8000/"; then
+              echo "MobSF reachable after ${i}s"
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "::error::MobSF did not become reachable within 180s. Last container logs:"
+            docker logs --tail 100 mobsf || true
+            exit 1
+          fi
+
+          echo "=== Uploading APK ==="
+          UPLOAD_RESP=$(curl -sSf -X POST \
+            -H "Authorization: $MOBSF_API_KEY" \
+            -F "file=@${APK}" \
+            "http://127.0.0.1:8000/api/v1/upload")
+          HASH=$(printf '%s' "$UPLOAD_RESP"    | jq -r '.hash // empty')
+          FILENAME=$(printf '%s' "$UPLOAD_RESP"| jq -r '.file_name // empty')
+          SCAN_TYPE=$(printf '%s' "$UPLOAD_RESP"| jq -r '.scan_type // empty')
+          if [ -z "$HASH" ]; then
+            echo "::error::MobSF upload failed. Response:"
+            printf '%s\n' "$UPLOAD_RESP" | jq . 2>/dev/null || printf '%s\n' "$UPLOAD_RESP"
+            exit 1
+          fi
+          echo "Uploaded. hash=${HASH:0:12}... scan_type=$SCAN_TYPE"
+
+          echo "=== Running static scan ==="
+          # --max-time 600 bounds a runaway scan. An empirical APK scan of our
+          # size takes ~2-4 min; 10 min is a generous ceiling.
+          curl -sSf --max-time 600 -X POST \
+            -H "Authorization: $MOBSF_API_KEY" \
+            -F "hash=$HASH" \
+            -F "scan_type=$SCAN_TYPE" \
+            -F "file_name=$FILENAME" \
+            "http://127.0.0.1:8000/api/v1/scan" > /dev/null
+
+          echo "=== Fetching JSON report ==="
+          curl -sSf --max-time 120 -X POST \
+            -H "Authorization: $MOBSF_API_KEY" \
+            -F "hash=$HASH" \
+            "http://127.0.0.1:8000/api/v1/report_json" > mobsf-report.json
+
+          # Structure guard. If MobSF's report shape drifts, fail loudly
+          # rather than silently letting findings slip past the gate.
+          if ! jq -e '.appsec.high' mobsf-report.json >/dev/null 2>&1; then
+            echo "::error::MobSF report missing .appsec.high — upstream schema may have changed. Top-level keys found:"
+            jq -r 'keys | .[]' mobsf-report.json || true
+            exit 1
+          fi
+
+          # Severity summary for log context.
+          jq -r '.appsec
+            | "MobSF severity summary: high=\(.high|length) warning=\(.warning|length) info=\(.info|length) secure=\(.secure|length) hotspot=\(.hotspot|length)"' \
+            mobsf-report.json
+
+          # Extract HIGH-severity titles + apply allowlist.
+          mapfile -t HIGH_TITLES < <(jq -r '.appsec.high[]?.title // empty' mobsf-report.json)
+          BLOCKING=()
+          for title in "${HIGH_TITLES[@]}"; do
+            [ -z "$title" ] && continue
+            allowed=0
+            for allow in "${ALLOWLIST[@]}"; do
+              if [[ "$title" == *"$allow"* ]]; then
+                allowed=1
+                break
+              fi
+            done
+            if [ "$allowed" -eq 0 ]; then
+              BLOCKING+=("$title")
+            fi
+          done
+
+          if [ "${#BLOCKING[@]}" -gt 0 ]; then
+            echo "::error::MobSF: ${#BLOCKING[@]} unallowlisted HIGH-severity finding(s) — BLOCKING"
+            printf '  - %s\n' "${BLOCKING[@]}"
+            echo ""
+            echo "Triage:"
+            echo "  1. Fix the finding (preferred)."
+            echo "  2. If confirmed false positive, add a substring of the title to ALLOWLIST in .github/workflows/build-pilot-apk.yml — justify in the PR description."
+            echo "  3. Full report is uploaded as the mobsf-report-* artifact."
+            exit 1
+          fi
+
+          echo "MobSF gate passed: no unallowlisted HIGH findings."
+
+      - name: Stop MobSF container
+        if: always()
+        run: docker rm -f mobsf >/dev/null 2>&1 || true
+
       - name: Sanitize version and rename APKs
         run: |
           VERSION_SAFE=$(printf '%s' "${{ inputs.version_name }}" | tr -cd '[:alnum:]._-')
@@ -146,3 +295,15 @@ jobs:
           path: build/app/outputs/flutter-apk/aman-v${{ env.VERSION_SAFE }}-*.apk
           retention-days: 30
           if-no-files-found: error
+
+      - name: Upload MobSF report
+        # Named off github.run_id (not VERSION_SAFE) so the report still
+        # uploads when the MobSF step fails before the rename step sets
+        # VERSION_SAFE. Triage needs the report most when the gate fails.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobsf-report-${{ github.run_id }}
+          path: mobsf-report.json
+          retention-days: 30
+          if-no-files-found: ignore

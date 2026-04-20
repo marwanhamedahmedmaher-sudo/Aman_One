@@ -4,6 +4,71 @@ Session log entries rotated out of `CLAUDE.md`. Newest first within this file.
 
 ---
 
+### Session: 2026-04-17 (afternoon) — Wave 3 live: signed pilot APK via GitHub Actions; keystore regenerated after lost password
+**Duration:** ~3h (spread across iterations)
+**Focus:** Get a signed, distributable pilot APK end-to-end. Pivot from local Windows build to GitHub Actions CI after hitting a corp-laptop environmental blocker, survive the CodeRabbit pre-merge review gauntlet, recover from a forgotten keystore password mid-flight, land a green build.
+**Completed:**
+- **Local release build attempts failed** with `java.io.IOException: Unable to establish loopback connection`. Root cause: corp-managed Windows hosts file (`C:\Windows\System32\drivers\etc\hosts`) has been stripped of default `127.0.0.1 localhost` / `::1 localhost` entries — only internal `aman.local` AD hosts remain. Gradle worker daemon can't bind `InetAddress.getByName("localhost")`, fails fast. No admin rights to fix hosts.
+- **Pivoted to GitHub Actions CI**: new workflow `.github/workflows/build-pilot-apk.yml` (manual `workflow_dispatch`, Ubuntu runner, decodes `KEYSTORE_BASE64` secret → writes `key.properties` via `printf` block → `flutter analyze` gate → `flutter build apk --release --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...` → `apksigner verify --print-certs` → `apktool d` + `grep -rlE service_role` hard gate → signed APK uploaded as 30-day artifact).
+- **CodeRabbit review — 8 iterations on the PR** ([#1 `ci/github-actions-pilot-build` → squash-merged `56800fa`](https://github.com/marwanhamedahmedmaher-sudo/Jawaker/pull/1)): added `permissions: contents: read` (least-privilege), replaced heredoc with `printf` block for `key.properties` (CodeRabbit's heredoc-corruption diagnosis was wrong — YAML strips common indent before bash sees the script — but refactored anyway for unambiguous readability), quoted `--dart-define` secret expansions, replaced JWT-match line-print with a count (avoid echoing JWT-shaped strings into CI logs), sanitized `inputs.version_name` against path traversal, added empty-guard for `apksigner` path, added `:?` fail-fast guards on `SUPABASE_URL` / `SUPABASE_ANON_KEY`, **and critically swapped the secret-scan `grep -rniE` (which prints matching lines before failing the step) to `grep -rlE` (filenames only) so a genuine leak does not end up verbatim in the log**. Two repo-wide pre-merge gates (Security Definer Hardening, RTL-Safe UI) flagged false positives on pre-existing code unrelated to this PR — ignored.
+- **Also opened & merged [PR #2 `fix/flutter-version-pin`](https://github.com/marwanhamedahmedmaher-sudo/Jawaker/pull/2)**: first CI run failed at `flutter pub get` because `flutter-version: 3.24.x` ships Dart 3.5.4 while `pubspec.yaml` requires Dart `^3.11.4`. Pinned exact to `3.41.6` (matches local dev Flutter) for byte-reproducibility.
+- **Second CI run failed on keystore signing** — `keystore password was incorrect`. Root cause: Marwan forgot the memorized keystore password between generation (2026-04-16 night) and first CI sign attempt.
+- **Keystore regenerated** — deleted old `C:\Users\marwan.haahmed\aman-release.jks` + any backups. Generated fresh one via Android Studio's bundled `keytool.exe` (RSA 4096, 10000 days, alias `aman`, same DN). Used a 20-char cryptographically-random alphanumeric password (`tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20`), passed to keytool via `-storepass:env KSPASS` to keep it out of command-line args. Password saved to plaintext `C:\Users\marwan.haahmed\aman-keystore-password.txt` for reliable backup alongside the `.jks`.
+- **Third CI run green** ✅ — signed `aman-v1.0.0-pilot.apk` produced as GitHub Actions artifact. Pilot distribution pipeline is live.
+**Decisions:**
+- **Release APK builds via GitHub Actions only** (documented in Current Decisions) — local Windows builds kept for debug APK + `flutter analyze` but cannot produce signed releases.
+- **Never rely on memorized keystore passwords for the pilot again** — password file co-located with keystore, backed up in same encrypted 7z. P2-7 (password manager migration) upgrade trigger treated as effectively met. Added to Current Decisions.
+- **Ignore Node 20 deprecation warnings on the workflow** — GitHub's June 2026 forced-switch is ~6 weeks out; revisit mid-May when `actions/checkout@v5` etc. stabilize. Chasing warnings now risks breaking a working pipeline for no pilot benefit.
+- **Ignore CodeRabbit repo-wide false-positive gates on infra PRs** — the Security Definer Hardening + RTL-Safe UI pre-merge gates scan the whole repo, not the PR diff, so they flag pre-existing code on every infra/CI/docs PR. Two follow-up issues drafted (not yet filed) to address the real underlying concerns: (a) in-CREATE `SET search_path` + `set_claim()` internal role check, (b) `AlignmentDirectional.centerStart` fix in `lib/screens/auth/forgot_password_screen.dart:19`.
+**Backlog impact:**
+- P0-1 note updated: "First signed pilot APK built via GitHub Actions 2026-04-17".
+- P2-7 note rewritten: upgrade trigger now effectively met due to forgot-password incident; treat as overdue rather than "before production rollout".
+- No status transitions (no DONE rows). Two new **Current Decisions** added (CI builds, keystore password storage). No new backlog rows — the CI workflow is infrastructure for the existing P0-1 / Wave-3 goal, not a standalone feature.
+**Blockers now:** 0 active.
+**Files changed:**
+- `.github/workflows/build-pilot-apk.yml` (new — via [PR #1](https://github.com/marwanhamedahmedmaher-sudo/Jawaker/pull/1) and [PR #2](https://github.com/marwanhamedahmedmaher-sudo/Jawaker/pull/2))
+- `android/gradle.properties` (IPv4 JVM flag added then reverted within the same PR — didn't fix the hosts-file issue, kept PR single-purpose)
+- `C:\Users\marwan.haahmed\aman-release.jks` (regenerated, not tracked)
+- `C:\Users\marwan.haahmed\aman-keystore-password.txt` (new, not tracked — Marwan's encrypted laptop)
+- `CLAUDE.md` (Current Decisions × 2, P0-1 + P2-7 notes, this entry, rotation)
+- `CLAUDE.archive.md` (rotated 2026-04-16 evening entry)
+**Pending user action:**
+1. **Create the new encrypted 7z** containing both `aman-release.jks` and `aman-keystore-password.txt`, copy to cloud drive + USB. The 2026-04-16 night backup plan referenced the old (lost-password) keystore and is now stale.
+2. **Smoke-test the APK** on Marwan's own Android phone — install via WhatsApp/email sideload, provision a test rep account via Supabase Dashboard, run the golden path (phone → password → forced change-password → new lead with products → merchant list → profile → NID reveal), verify `merchants` row + `audit_log` rows.
+3. **Draft + file the two CodeRabbit follow-up issues** (Security Definer hardening + `set_claim` access control; RTL fix in `forgot_password_screen.dart:19`) — drafts already written in conversation.
+**Next Session:**
+1. After smoke test passes: provision the real pilot rep accounts via `scripts/provision_rep.sh` (or Dashboard Auth UI) per [docs/P0-DASHBOARD-RUNBOOK.md](docs/P0-DASHBOARD-RUNBOOK.md). One phone number + temp password per rep, `must_change_password=true`.
+2. WhatsApp the `aman-v1.0.0-pilot.apk` + install instructions to each rep; send temp credentials in a separate message (+email backup per dual-channel decision).
+3. Monitor Supabase Dashboard for first real rep submissions; verify `audit_log` captures `merchant_created` + `national_id_revealed` events as expected.
+4. File the two CodeRabbit follow-up issues before pilot traffic accumulates.
+
+### Session: 2026-04-17 (morning) — GitHub repo push: `Jawaker` origin set up
+**Duration:** ~10m
+**Focus:** Create git remote + initial push of full pilot baseline to GitHub (new repo `https://github.com/marwanhamedahmedmaher-sudo/Jawaker`). Harden gitignore for editor/tooling config that had been tracked incorrectly.
+**Completed:**
+- **Pre-push secrets scan**: no tracked `.env*` / `.jks` / `key.properties` / `service_role` files. Found Supabase **dev + prod anon keys** embedded in `.claude/launch.json` + `.claude/settings.local.json` (4 Bash allowlist entries). Low severity — anon keys are public by design (RLS-protected) — but editor state shouldn't be in version control regardless.
+- **Gitignore hardened**: added `.claude/` and `.obsidian/` to root `.gitignore`. Removed `.claude/settings.local.json` from the index via `git rm --cached` (working copy preserved). `.obsidian/` was never tracked — ignore-only.
+- **Branch rename** `master` → `main` (GitHub default; matches repo convention referenced in earlier session logs).
+- **Pilot baseline commit** (`ac7b720`): 51 files, +5006/-463. Rolls up every uncommitted change since `ae9fc1a` — P0-21, P1-6/9/10/11/12, tasks module migrations 013-016, prod Supabase artifacts, Android signing config, provisioning scripts, pilot checklist + Day 1 execution plan.
+- **Force push to `origin/main`**: remote had only an auto-generated `# Jawaker\nJawaker app` README stub (commit `a19b097`). Discarded via `--force`. Local `main` now tracks `origin/main`.
+**Decisions:**
+- **`.claude/` and `.obsidian/` ignored wholesale** — even though anon keys are RLS-protected, editor/tooling config is user-specific and shouldn't live in a shared repo. If project-wide Claude config is ever needed (e.g. `.claude/commands/`), add it as an explicitly un-ignored subpath rather than loosening the directory-level rule.
+- **Force push over `--allow-unrelated-histories` merge** — remote had nothing meaningful, so force push kept history linear. Would not be acceptable on a repo with collaborators; flagging here so future sessions don't copy the pattern blindly.
+**Backlog impact:** No new/closed rows. Activates the dormant CodeRabbit config (P1-12) since the GitHub App can now be installed on the live repo.
+**Blockers now:** 0 active.
+**Files changed:**
+- `.gitignore` (added `.claude/`, `.obsidian/`)
+- `.claude/settings.local.json` (removed from tracking)
+- `CLAUDE.md` (GitHub repo reference in Current Decisions, this entry, rotation)
+- `CLAUDE.archive.md` (rotated 2026-04-16 morning entry)
+**Next Session:**
+1. Install CodeRabbit GitHub App at https://github.com/apps/coderabbitai → authorize on `Jawaker` repo. Open a throwaway PR to confirm it reads `.github/REVIEW_CONTEXT.md` + `CLAUDE.md`.
+2. **Marwan manual** (before Wave 3): back up `.jks` to cloud + USB.
+3. **Wave 3 — release APK build**: `flutter build apk --release --dart-define=SUPABASE_URL=https://yflwudkmhqwoscipscbb.supabase.co --dart-define=SUPABASE_ANON_KEY=<prod-anon-key>`. Verify with `apksigner verify --print-certs`. Rename to `aman-v1.0.0-pilot.apk`. Confirm size < 50MB for WhatsApp.
+4. **Agent J — decompile + secret-scan**: `apktool d aman-v1.0.0-pilot.apk -o decompiled/` then `grep -ri "service_role\|supabase_service\|password" decompiled/`. Only `SUPABASE_ANON_KEY` permitted; any `service_role` hit is pilot-blocking.
+
+---
+
 ### Session: 2026-04-16 (late-late night) — Wave 2 Agent F: `flutter analyze` clean
 **Duration:** ~5m
 **Focus:** Run `flutter analyze` to confirm zero static-analysis issues before Wave 3 release APK build.
