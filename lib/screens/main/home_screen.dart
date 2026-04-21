@@ -55,7 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'وانجز',
+                    'وان',
                     style: AppTheme.bodyLarge.copyWith(
                       color: AppColors.textDark,
                       fontWeight: FontWeight.w700,

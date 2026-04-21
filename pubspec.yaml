@@ -1,5 +1,5 @@
 name: aman_sales_app
-description: "Aman Sales App - منصة تسجيل التجار"
+description: "Aman One - منصة تسجيل التجار"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -30,7 +30,7 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.1
 
 patrol:
-  app_name: Aman Sales App
+  app_name: Aman One
   android:
     package_name: com.aman.aman_sales_app
 
