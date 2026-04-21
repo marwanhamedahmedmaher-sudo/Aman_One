@@ -3,6 +3,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user.dart' as app;
+import '../services/analytics.dart';
 
 class AuthResult {
   final bool success;
@@ -64,6 +65,7 @@ class AuthProvider extends ChangeNotifier {
       if (response.user == null) {
         _loading = false;
         notifyListeners();
+        await Analytics.track('login_failed', properties: {'reason': 'no_user'});
         return const AuthResult(
             success: false, error: '\u0641\u0634\u0644 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644');
       }
@@ -81,6 +83,12 @@ class AuthProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
 
+      await Analytics.identify(response.user!.id);
+      await Analytics.track('login_succeeded', properties: {
+        'must_change_password': mustChange,
+        'role': _user?.role,
+      });
+
       return AuthResult(
         success: true,
         mustChangePassword: mustChange,
@@ -88,10 +96,30 @@ class AuthProvider extends ChangeNotifier {
     } on AuthException catch (e) {
       _loading = false;
       notifyListeners();
-      return AuthResult(success: false, error: e.message);
-    } catch (e) {
+      debugPrint('[auth:signIn] AuthException (${e.statusCode}): ${e.message}');
+      await Analytics.track('login_failed', properties: {
+        'reason': 'auth_exception',
+        'code': e.statusCode,
+      });
+      // Never surface raw backend English to the rep. Map the common codes
+      // to Arabic; fall back to the generic login-failed copy.
+      return AuthResult(
+        success: false,
+        error: _mapAuthExceptionToArabic(e),
+      );
+    } catch (e, st) {
       _loading = false;
       notifyListeners();
+      // Surface the real exception type + message in logcat so Patrol CI
+      // can grep it. Previously this path swallowed the cause, leaving us
+      // to stare at `reason: unexpected` with no way to tell a socket
+      // error from a JWT parse failure from a storage write fault.
+      debugPrint('[auth:signIn] unexpected (${e.runtimeType}): $e');
+      debugPrint('[auth:signIn] stack: $st');
+      await Analytics.track('login_failed', properties: {
+        'reason': 'unexpected',
+        'error_type': e.runtimeType.toString(),
+      });
       return AuthResult(
           success: false,
           error:
@@ -115,6 +143,7 @@ class AuthProvider extends ChangeNotifier {
     _loading = true;
     notifyListeners();
 
+    final wasForced = _user?.mustChangePassword ?? false;
     try {
       await _supabase.auth.updateUser(
         UserAttributes(password: newPassword),
@@ -134,10 +163,15 @@ class AuthProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
 
+      await Analytics.track('password_changed', properties: {
+        'was_forced': wasForced,
+      });
+
       return const AuthResult(success: true);
     } catch (e) {
       _loading = false;
       notifyListeners();
+      await Analytics.track('password_change_failed');
       return AuthResult(
           success: false,
           error:
@@ -171,10 +205,16 @@ class AuthProvider extends ChangeNotifier {
   Future<void> enableBiometric(String phone, String password) async {
     await _secureStorage.write(key: 'bio_phone', value: phone);
     await _secureStorage.write(key: 'bio_password', value: password);
+    await Analytics.track('biometric_enabled');
   }
 
   /// Sign in using biometric authentication
   Future<AuthResult> signInWithBiometric() async {
+    // Record the attempt at the very start — every `failed` event must have
+    // a matching `attempted` for the funnel math to work. Previously this
+    // fired only AFTER both the prompt succeeded and credentials were found,
+    // so cancelled / missing-credential flows logged unpaired `failed`.
+    await Analytics.track('biometric_login_attempted');
     try {
       final authenticated = await _localAuth.authenticate(
         localizedReason:
@@ -186,6 +226,8 @@ class AuthProvider extends ChangeNotifier {
       );
 
       if (!authenticated) {
+        await Analytics.track('biometric_login_failed',
+            properties: {'reason': 'user_cancelled'});
         return const AuthResult(
             success: false,
             error:
@@ -196,6 +238,8 @@ class AuthProvider extends ChangeNotifier {
       final password = await _secureStorage.read(key: 'bio_password');
 
       if (phone == null || password == null) {
+        await Analytics.track('biometric_login_failed',
+            properties: {'reason': 'no_credentials'});
         return const AuthResult(
             success: false,
             error:
@@ -204,11 +248,36 @@ class AuthProvider extends ChangeNotifier {
 
       return signIn(phone, password);
     } catch (_) {
+      await Analytics.track('biometric_login_failed',
+          properties: {'reason': 'unexpected'});
       return const AuthResult(
           success: false,
           error:
               '\u0627\u0644\u0628\u0635\u0645\u0629 \u063a\u064a\u0631 \u0645\u062a\u0627\u062d\u0629');
     }
+  }
+
+  /// Translate Supabase auth errors into user-facing Arabic copy. Anything
+  /// we don't have an explicit mapping for falls through to the generic
+  /// "فشل تسجيل الدخول" so we never show raw English to a rep.
+  String _mapAuthExceptionToArabic(AuthException e) {
+    final msg = e.message.toLowerCase();
+    if (msg.contains('invalid') && msg.contains('credentials')) {
+      // Phone or password wrong.
+      return '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062f\u062e\u0648\u0644 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d\u0629'; // بيانات الدخول غير صحيحة
+    }
+    if (msg.contains('disabled') || msg.contains('banned')) {
+      // Rep suspended via Dashboard "Ban user".
+      return '\u062a\u0645 \u062a\u0639\u0644\u064a\u0642 \u0627\u0644\u062d\u0633\u0627\u0628\u060c \u062a\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0625\u062f\u0627\u0631\u0629'; // تم تعليق الحساب، تواصل مع الإدارة
+    }
+    if (msg.contains('rate') && msg.contains('limit')) {
+      return '\u0645\u062d\u0627\u0648\u0644\u0627\u062a \u0643\u062b\u064a\u0631\u0629\u060c \u062d\u0627\u0648\u0644 \u0644\u0627\u062d\u0642\u0627\u064b'; // محاولات كثيرة، حاول لاحقاً
+    }
+    if (msg.contains('network') || msg.contains('connection')) {
+      return '\u062a\u0639\u0630\u0631 \u0627\u0644\u0627\u062a\u0635\u0627\u0644\u060c \u062a\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0625\u0646\u062a\u0631\u0646\u062a'; // تعذر الاتصال، تحقق من الإنترنت
+    }
+    // Catch-all.
+    return '\u0641\u0634\u0644 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644'; // فشل تسجيل الدخول
   }
 
   /// Clear biometric credentials
@@ -230,5 +299,7 @@ class AuthProvider extends ChangeNotifier {
     _user = null;
     _currentPhone = '';
     notifyListeners();
+    await Analytics.track('logged_out');
+    await Analytics.reset();
   }
 }

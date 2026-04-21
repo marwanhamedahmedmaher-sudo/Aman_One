@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/merchant.dart';
 import '../../providers/merchant_list_provider.dart';
+import '../../services/analytics.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/formatters.dart';
 
@@ -16,6 +17,16 @@ class MerchantProfileScreen extends StatefulWidget {
 class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
   String? _revealedNid;
   bool _isRevealing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Analytics.track('merchant_profile_viewed', properties: {
+      'merchant_id': widget.merchant.id,
+      'status': widget.merchant.status,
+      'product_count': widget.merchant.products.length,
+    });
+  }
 
   Future<void> _revealNid() async {
     setState(() => _isRevealing = true);

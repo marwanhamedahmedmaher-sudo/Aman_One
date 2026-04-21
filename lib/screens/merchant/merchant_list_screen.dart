@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/merchant.dart';
 import '../../providers/merchant_list_provider.dart';
+import '../../services/analytics.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/formatters.dart';
 import 'merchant_profile_screen.dart';
@@ -19,6 +20,7 @@ class _MerchantListScreenState extends State<MerchantListScreen> {
     super.initState();
     final provider = context.read<MerchantListProvider>();
     Future.microtask(() => provider.fetchMerchants());
+    Analytics.track('merchant_list_viewed');
   }
 
   @override
