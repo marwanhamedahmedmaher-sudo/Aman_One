@@ -11,7 +11,6 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  google_fonts: ^6.0.0
   provider: ^6.0.0
   cupertino_icons: ^1.0.8
   supabase_flutter: ^2.8.1
@@ -46,3 +45,14 @@ flutter:
   assets:
     - assets/images/
     - assets/branding/
+  fonts:
+    - family: Alexandria
+      fonts:
+        - asset: assets/fonts/Alexandria-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Alexandria-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Alexandria-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Alexandria-Bold.ttf
+          weight: 700
