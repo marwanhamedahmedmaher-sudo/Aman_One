@@ -42,11 +42,14 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
   final _supabase = Supabase.instance.client;
 
   CATrack _track = CATrack.individual;
+  bool _egyptian = true; // Egyptian (National ID) vs foreigner (passport)
   int _step = 0;
-  bool _scanning = false;
+  String? _scanningKey; // which image field is currently OCR-scanning
   bool _submitting = false;
   String? _error;
-  EkycResult? _scan;
+  EkycResult? _scan; // National-ID scan summary (Egyptian)
+  PassportResult? _passportScan; // passport scan summary (foreigner)
+  final Map<String, String> _fetched = {}; // doc-OCR fetched values, by doc key
 
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String?> _dropdowns = {};
@@ -135,8 +138,11 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
 
   List<CAField> _visible(CAStep step) {
     return step.fields.where((f) {
-      if (f.track == CATrack.both) return true;
-      return (f.track == CATrack.company) == (_track == CATrack.company);
+      final trackOk = f.track == CATrack.both ||
+          (f.track == CATrack.company) == (_track == CATrack.company);
+      final natOk = f.nat == CANationality.both ||
+          (f.nat == CANationality.egyptian) == _egyptian;
+      return trackOk && natOk;
     }).toList();
   }
 
@@ -196,6 +202,22 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
     if (r.birthDate != null) _dates['birth_date'] = r.birthDate;
   }
 
+  void _applyPassport(PassportResult r) {
+    if (r.fullName != null) _setName(r.fullName!);
+    if (r.passportNumber != null) {
+      _controllers['passport_number']?.text = r.passportNumber!;
+    }
+    if (r.nationality != null) {
+      _controllers['nationality_country']?.text = r.nationality!;
+    }
+    if (r.birthDate != null) _dates['birth_date'] = r.birthDate;
+    if (r.fullNameEn != null && r.fullNameEn!.trim().isNotEmpty) {
+      final t = r.fullNameEn!.trim().split(RegExp(r'\s+'));
+      _controllers['first_name_en']?.text = t.first;
+      if (t.length > 1) _controllers['family_name_en']?.text = t.last;
+    }
+  }
+
   Future<ImageSource?> _pickSource() {
     return showModalBottomSheet<ImageSource>(
       context: context,
@@ -228,39 +250,71 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
   Future<void> _captureImage(CAField f) async {
     final source = await _pickSource();
     if (source == null) return;
-    final isOcr = f.key == 'id_front';
 
-    if (isOcr) setState(() => _scanning = true);
+    final isNid = f.key == 'id_front';
+    final isPassport = f.key == 'passport_image';
+    final fetchField = ocrFetchDocs[f.key]; // 'commercial_reg' | 'tax_card' | null
+    final isOcr = isNid || isPassport || fetchField != null;
+
+    if (isOcr) setState(() => _scanningKey = f.key);
     try {
       final file = await ImagePicker()
           .pickImage(source: source, maxWidth: 2000, imageQuality: 85);
       if (file == null) {
-        if (mounted && isOcr) setState(() => _scanning = false);
+        if (mounted && isOcr) setState(() => _scanningKey = null);
         return;
       }
-      if (isOcr) {
-        Analytics.track('onboarding_scan_started');
-        final bytes = await file.readAsBytes();
-        final result = await EkycService.instance.scanNationalId(bytes);
+      final bytes = isOcr ? await file.readAsBytes() : null;
+
+      if (isNid) {
+        Analytics.track('onboarding_scan_started', properties: {'doc': 'national_id'});
+        final result = await EkycService.instance.scanNationalId(bytes!);
         _applyScan(result);
         if (!mounted) return;
         setState(() {
-          _scanning = false;
+          _scanningKey = null;
           _images[f.key] = true;
           _scan = result;
         });
-        Analytics.track('onboarding_scan_succeeded');
+        Analytics.track('onboarding_scan_succeeded', properties: {'doc': 'national_id'});
+      } else if (isPassport) {
+        Analytics.track('onboarding_scan_started', properties: {'doc': 'passport'});
+        final result = await EkycService.instance.scanPassport(bytes!);
+        _applyPassport(result);
+        if (!mounted) return;
+        setState(() {
+          _scanningKey = null;
+          _images[f.key] = true;
+          _passportScan = result;
+        });
+        Analytics.track('onboarding_scan_succeeded', properties: {'doc': 'passport'});
+      } else if (fetchField != null) {
+        Analytics.track('onboarding_scan_started', properties: {'doc': f.key});
+        final result = f.key == 'doc_tax_card'
+            ? await EkycService.instance.scanTaxCard(bytes!)
+            : await EkycService.instance.scanCommercialRegister(bytes!);
+        final fetched = result.fields[fetchField];
+        if (fetched != null && fetched.isNotEmpty) {
+          _controllers[fetchField]?.text = fetched;
+        }
+        if (!mounted) return;
+        setState(() {
+          _scanningKey = null;
+          _images[f.key] = true;
+          if (fetched != null && fetched.isNotEmpty) _fetched[f.key] = fetched;
+        });
+        Analytics.track('onboarding_scan_succeeded', properties: {'doc': f.key});
       } else {
         if (!mounted) return;
         setState(() => _images[f.key] = true);
       }
     } catch (_) {
       if (!mounted) return;
-      setState(() => _scanning = false);
+      setState(() => _scanningKey = null);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تعذّر التقاط الصورة. حاول مرة أخرى.')),
       );
-      if (isOcr) Analytics.track('onboarding_scan_failed');
+      if (isOcr) Analytics.track('onboarding_scan_failed', properties: {'doc': f.key});
     }
   }
 
@@ -277,6 +331,10 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
       if (f.key == 'national_id' && v.isNotEmpty &&
           !RegExp(r'^\d{14}$').hasMatch(v)) {
         return 'الرقم القومي يجب أن يكون ١٤ رقم';
+      }
+      if (f.key == 'passport_number' && v.isNotEmpty &&
+          !RegExp(r'^[A-Za-z0-9]{5,20}$').hasMatch(v)) {
+        return 'رقم جواز السفر غير صحيح';
       }
       if (f.kind == CAFieldKind.phone && v.isNotEmpty &&
           !(v.startsWith('01') && v.length == 11)) {
@@ -341,6 +399,8 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
 
     final application = {
       'track': _track == CATrack.company ? 'company' : 'individual',
+      'nationality': _egyptian ? 'مصري' : 'أجنبي',
+      'id_document_type': _egyptian ? 'national_id' : 'passport',
       'kyc': kyc,
       'products': productsPayload,
       'documents': docsPayload,
@@ -354,7 +414,9 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
     final core = <String, dynamic>{
       'name': nameParts.isNotEmpty ? nameParts : _byKey('shop_name'),
       'phone': _byKey('merchant_mobile'),
-      'national_id': _byKey('national_id'),
+      // Identity document: Egyptian National ID, or a foreigner's passport
+      // (migration 018). Exactly one identifier column is set.
+      'id_document_type': _egyptian ? 'national_id' : 'passport',
       'products': widget.products,
       // Typed columns kept in sync with the CHECK constraints (migration 011):
       // a product's detail column is set only when that product is selected.
@@ -368,6 +430,11 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
       'notes': '',
       'status': 'lead',
     };
+    if (_egyptian) {
+      core['national_id'] = _byKey('national_id');
+    } else {
+      core['passport_number'] = _byKey('passport_number');
+    }
     final userId = _supabase.auth.currentUser?.id;
     if (userId != null) core['created_by'] = userId;
 
@@ -380,11 +447,27 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
       final id = await _insertMerchant({...core, 'onboarding_application': application});
       await _onSuccess(id);
     } on PostgrestException catch (e) {
-      // Graceful fallback if the JSONB column isn't migrated yet.
-      if (e.code == '42703' || e.code == 'PGRST204' ||
-          e.message.contains('onboarding_application')) {
+      // Graceful fallback when newer columns aren't migrated yet
+      // (onboarding_application=017, id_document_type/passport_number=018).
+      if (_isUndefinedColumn(e)) {
+        // Foreigners need migration 018 to persist a passport — fail clearly
+        // rather than silently dropping the identity.
+        if (!_egyptian) {
+          if (!mounted) return;
+          setState(() {
+            _submitting = false;
+            _error = 'تسجيل الأجانب يتطلب تحديث قاعدة البيانات (Migration 018)';
+          });
+          Analytics.track('onboarding_submit_failed',
+              properties: {'reason': 'passport_needs_migration'});
+          return;
+        }
+        // Egyptian: retry with the legacy-safe column set.
+        final legacy = Map<String, dynamic>.of(core)
+          ..remove('id_document_type')
+          ..remove('passport_number');
         try {
-          final id = await _insertMerchant(core);
+          final id = await _insertMerchant(legacy);
           await _onSuccess(id);
           return;
         } on PostgrestException catch (e2) {
@@ -408,16 +491,28 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
     return res['id'] as String?;
   }
 
+  /// True when the insert failed because a column doesn't exist yet — i.e. a
+  /// migration (017 onboarding_application, 018 passport identity) is pending.
+  bool _isUndefinedColumn(PostgrestException e) =>
+      e.code == '42703' ||
+      e.code == 'PGRST204' ||
+      e.message.contains('onboarding_application') ||
+      e.message.contains('id_document_type') ||
+      e.message.contains('passport_number');
+
   void _handlePgError(PostgrestException e) {
     if (!mounted) return;
     String msg;
     String reason;
     if (e.code == '23505') {
-      msg = 'هذا الرقم القومي مسجل بالفعل';
-      reason = 'duplicate_nid';
+      msg = _egyptian ? 'هذا الرقم القومي مسجل بالفعل' : 'هذا الجواز مسجل بالفعل';
+      reason = 'duplicate_identity';
     } else if (e.message.contains('رقم الموبايل غير صحيح')) {
       msg = 'رقم الموبايل غير صحيح';
       reason = 'invalid_phone';
+    } else if (e.message.contains('رقم جواز السفر غير صحيح')) {
+      msg = 'رقم جواز السفر غير صحيح';
+      reason = 'invalid_passport';
     } else if (e.message.contains('رقم القومي غير صحيح')) {
       msg = 'الرقم القومي غير صحيح';
       reason = 'invalid_nid';
@@ -535,6 +630,12 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
         ],
         const SizedBox(height: 16),
         if (_step == 0) ...[
+          _buildToggleLabel('الجنسية'),
+          const SizedBox(height: 8),
+          _buildNationalityToggle(),
+          const SizedBox(height: 16),
+          _buildToggleLabel('نوع العميل'),
+          const SizedBox(height: 8),
           _buildTrackToggle(),
           const SizedBox(height: 16),
         ],
@@ -542,7 +643,7 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
           _buildField(f),
           const SizedBox(height: 16),
         ],
-        if (_scan != null && _step == 1) _buildScanSummary(),
+        if (_step == 1) _buildScanSummary(),
         if (_error != null) ...[
           const SizedBox(height: 4),
           _buildError(),
@@ -551,37 +652,59 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
     );
   }
 
-  Widget _buildTrackToggle() {
-    Widget chip(String label, CATrack track) {
-      final selected = _track == track;
-      return Expanded(
-        child: GestureDetector(
-          onTap: () => setState(() => _track = track),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: selected ? AppColors.primary : AppColors.inputBg,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: selected ? AppColors.primary : AppColors.border),
-            ),
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: AppTheme.inputText.copyWith(
-                color: selected ? AppColors.textWhite : AppColors.textDark,
-                fontWeight: FontWeight.w600,
-              ),
+  Widget _buildToggleLabel(String text) =>
+      Text(text, style: AppTheme.labelText);
+
+  Widget _toggleChip(String label, bool selected, VoidCallback onTap) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.primary : AppColors.inputBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: selected ? AppColors.primary : AppColors.border),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: AppTheme.inputText.copyWith(
+              color: selected ? AppColors.textWhite : AppColors.textDark,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
-      );
-    }
+      ),
+    );
+  }
 
+  // Nationality drives which document is scanned (National ID vs passport) and
+  // which identity fields show. Asked before the scan, on the first step.
+  Widget _buildNationalityToggle() {
+    void set(bool egyptian) => setState(() {
+          _egyptian = egyptian;
+          _error = null;
+        });
     return Row(
       children: [
-        chip('فردي', CATrack.individual),
+        _toggleChip('مصري', _egyptian, () => set(true)),
         const SizedBox(width: 12),
-        chip('شركات', CATrack.company),
+        _toggleChip('أجنبي', !_egyptian, () => set(false)),
+      ],
+    );
+  }
+
+  Widget _buildTrackToggle() {
+    void set(CATrack t) => setState(() {
+          _track = t;
+          _error = null;
+        });
+    return Row(
+      children: [
+        _toggleChip('فردي', _track == CATrack.individual, () => set(CATrack.individual)),
+        const SizedBox(width: 12),
+        _toggleChip('شركات', _track == CATrack.company, () => set(CATrack.company)),
       ],
     );
   }
@@ -693,46 +816,78 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
 
   Widget _buildImageField(CAField f) {
     final captured = _images[f.key] ?? false;
-    final isFront = f.key == 'id_front';
-    final busy = isFront && _scanning;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: captured ? AppColors.teal20 : AppColors.inputBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: captured ? AppColors.teal60 : AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            captured ? Icons.check_circle : Icons.add_a_photo_outlined,
-            color: captured ? AppColors.teal110 : AppColors.textMedium,
+    final busy = _scanningKey == f.key;
+    final fetched = _fetched[f.key];
+    final scannable = f.key == 'id_front' ||
+        f.key == 'passport_image' ||
+        ocrFetchDocs.containsKey(f.key);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: captured ? AppColors.teal20 : AppColors.inputBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: captured ? AppColors.teal60 : AppColors.border),
           ),
-          const SizedBox(width: 12),
-          Expanded(child: Text(f.label, style: AppTheme.inputText)),
-          TextButton(
-            onPressed: busy ? null : () => _captureImage(f),
-            child: busy
-                ? const SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2.2),
-                  )
-                : Text(captured ? 'إعادة' : 'تصوير', style: AppTheme.linkText),
+          child: Row(
+            children: [
+              Icon(
+                captured
+                    ? Icons.check_circle
+                    : (scannable
+                        ? Icons.document_scanner_outlined
+                        : Icons.add_a_photo_outlined),
+                color: captured ? AppColors.teal110 : AppColors.textMedium,
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Text(f.label, style: AppTheme.inputText)),
+              TextButton(
+                onPressed: busy ? null : () => _captureImage(f),
+                child: busy
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2.2),
+                      )
+                    : Text(captured ? 'إعادة' : (scannable ? 'مسح' : 'تصوير'),
+                        style: AppTheme.linkText),
+              ),
+            ],
+          ),
+        ),
+        if (fetched != null && fetched.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome, color: AppColors.teal110, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text('تم استخراج الرقم: $fetched',
+                    style: AppTheme.bodySmall.copyWith(color: AppColors.teal110)),
+              ),
+            ],
           ),
         ],
-      ),
+      ],
     );
   }
 
   Widget _buildScanSummary() {
-    final s = _scan!;
-    final parts = <String>[
-      if (s.gender != null) s.gender!,
-      if (s.governorate != null) s.governorate!,
-      if (s.birthDate != null) 'مواليد ${s.birthDate!.year}',
-    ];
+    final parts = <String>[];
+    if (_egyptian && _scan != null) {
+      final s = _scan!;
+      if (s.gender != null) parts.add(s.gender!);
+      if (s.governorate != null) parts.add(s.governorate!);
+      if (s.birthDate != null) parts.add('مواليد ${s.birthDate!.year}');
+    } else if (!_egyptian && _passportScan != null) {
+      final s = _passportScan!;
+      if (s.nationality != null) parts.add(s.nationality!);
+      if (s.gender != null) parts.add(s.gender!);
+      if (s.birthDate != null) parts.add('مواليد ${s.birthDate!.year}');
+    }
     if (parts.isEmpty) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
@@ -809,6 +964,7 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
         const SizedBox(height: 4),
         Text(
           '${_track == CATrack.company ? 'شركة' : 'فرد'} • '
+          '${_egyptian ? 'مصري' : 'أجنبي'} • '
           '${widget.products.map(productLabelAr).join(' + ')}',
           style: AppTheme.bodyMedium,
         ),

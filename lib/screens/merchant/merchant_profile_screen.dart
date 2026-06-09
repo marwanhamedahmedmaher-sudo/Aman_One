@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/card_application_spec.dart';
 import '../../models/merchant.dart';
 import '../../providers/merchant_list_provider.dart';
 import '../../services/analytics.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/formatters.dart';
+import '../../widgets/responsive_container.dart';
 
 class MerchantProfileScreen extends StatefulWidget {
   final Lead merchant;
@@ -15,8 +17,10 @@ class MerchantProfileScreen extends StatefulWidget {
 }
 
 class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
-  String? _revealedNid;
+  String? _revealedId;
   bool _isRevealing = false;
+
+  bool get _isForeigner => widget.merchant.idDocumentType == 'passport';
 
   @override
   void initState() {
@@ -25,19 +29,23 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
       'merchant_id': widget.merchant.id,
       'status': widget.merchant.status,
       'product_count': widget.merchant.products.length,
+      'id_document_type': widget.merchant.idDocumentType,
     });
   }
 
-  Future<void> _revealNid() async {
+  // Reveals the right identity document: passport for foreigners, National ID
+  // for Egyptians. Both go through a SECURITY DEFINER reveal-with-audit RPC.
+  Future<void> _revealId() async {
     setState(() => _isRevealing = true);
 
-    final nid = await context
-        .read<MerchantListProvider>()
-        .revealNationalId(widget.merchant.id!);
+    final provider = context.read<MerchantListProvider>();
+    final value = _isForeigner
+        ? await provider.revealPassportNumber(widget.merchant.id!)
+        : await provider.revealNationalId(widget.merchant.id!);
 
     if (mounted) {
       setState(() {
-        _revealedNid = nid;
+        _revealedId = value;
         _isRevealing = false;
       });
     }
@@ -59,7 +67,8 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-        child: Column(
+        child: ResponsiveContainer(
+          child: Column(
           children: [
             // Avatar
             Container(
@@ -84,7 +93,7 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
             // Info cards
             _infoCard('رقم الموبايل', widget.merchant.phone, Icons.phone_outlined,
                 textDirection: TextDirection.ltr),
-            _nidCard(),
+            _idCard(),
             _productsCard(),
             if (widget.merchant.activityTypeName != null)
               _infoCard('\u0646\u0648\u0639 \u0627\u0644\u0646\u0634\u0627\u0637', widget.merchant.activityTypeName!, Icons.category_outlined), // نوع النشاط
@@ -101,6 +110,7 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
             _infoCard('تاريخ التسجيل', formatDate(widget.merchant.createdAt),
                 Icons.calendar_today_outlined),
           ],
+        ),
         ),
       ),
     );
@@ -159,7 +169,7 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          product,
+                          productLabelAr(product),
                           style: AppTheme.bodyLarge
                               .copyWith(fontWeight: FontWeight.w600),
                         ),
@@ -186,10 +196,13 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
     );
   }
 
-  Widget _nidCard() {
-    // List query omits national_id by design (reveal_national_id RPC is the
-    // sole plaintext path). NID is always 14 digits; mask accordingly.
-    final displayValue = _revealedNid ?? '*' * 14;
+  Widget _idCard() {
+    // The list query omits both identifiers by design — the reveal RPCs are the
+    // sole plaintext path. Label, mask length, and reveal target all depend on
+    // whether this is a foreigner (passport) or an Egyptian (National ID).
+    final label = _isForeigner ? 'رقم جواز السفر' : 'الرقم القومي';
+    final maskLength = _isForeigner ? 9 : 14;
+    final displayValue = _revealedId ?? '*' * maskLength;
 
     return Container(
       width: double.infinity,
@@ -223,20 +236,20 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('الرقم القومي', style: AppTheme.bodySmall),
+                Text(label, style: AppTheme.bodySmall),
                 const SizedBox(height: 3),
                 Text(
                   displayValue,
                   style: AppTheme.bodyLarge.copyWith(
                     fontWeight: FontWeight.w600,
-                    letterSpacing: _revealedNid != null ? 1.2 : 0,
+                    letterSpacing: _revealedId != null ? 1.2 : 0,
                   ),
                   textDirection: TextDirection.ltr,
                 ),
               ],
             ),
           ),
-          if (_revealedNid == null)
+          if (_revealedId == null)
             _isRevealing
                 ? const SizedBox(
                     width: 24,
@@ -247,7 +260,7 @@ class _MerchantProfileScreenState extends State<MerchantProfileScreen> {
                     ),
                   )
                 : GestureDetector(
-                    onTap: _revealNid,
+                    onTap: _revealId,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 6),

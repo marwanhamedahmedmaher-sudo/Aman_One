@@ -26,7 +26,7 @@ class MerchantListProvider extends ChangeNotifier {
     try {
       final data = await _supabase
           .from('merchants')
-          .select('id, name, phone, notes, products, microfinance_amount, acceptance_device_count, avg_monthly_sales, business_address, activity_type_id, activity_types(name), status, created_by, created_at')
+          .select('id, name, phone, id_document_type, notes, products, microfinance_amount, acceptance_device_count, avg_monthly_sales, business_address, activity_type_id, activity_types(name), status, created_by, created_at')
           .order('created_at', ascending: false);
 
       _merchants = (data as List).map((row) {
@@ -88,6 +88,37 @@ class MerchantListProvider extends ChangeNotifier {
       _error = 'حدث خطأ أثناء عرض الرقم القومي';
       notifyListeners();
       await Analytics.track('nid_reveal_failed', properties: {
+        'merchant_id': merchantId,
+        'pg_code': null,
+      });
+      return null;
+    }
+  }
+
+  /// Reveal a foreigner's plaintext passport via SECURITY DEFINER RPC
+  /// (migration 019). Mirror of [revealNationalId]. Returns passport or null.
+  Future<String?> revealPassportNumber(String merchantId) async {
+    try {
+      final result = await _supabase.rpc(
+        'reveal_passport_number',
+        params: {'p_merchant_id': merchantId},
+      );
+      await Analytics.track('passport_revealed', properties: {
+        'merchant_id': merchantId,
+      });
+      return result as String?;
+    } on PostgrestException catch (e) {
+      _error = e.message;
+      notifyListeners();
+      await Analytics.track('passport_reveal_failed', properties: {
+        'merchant_id': merchantId,
+        'pg_code': e.code,
+      });
+      return null;
+    } catch (_) {
+      _error = 'حدث خطأ أثناء عرض جواز السفر';
+      notifyListeners();
+      await Analytics.track('passport_reveal_failed', properties: {
         'merchant_id': merchantId,
         'pg_code': null,
       });

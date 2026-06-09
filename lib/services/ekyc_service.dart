@@ -48,13 +48,6 @@ class EkycResult {
   });
 
   factory EkycResult.fromJson(Map<String, dynamic> json) {
-    final conf = <String, double>{};
-    final rawConf = json['confidence'];
-    if (rawConf is Map) {
-      rawConf.forEach((k, v) {
-        if (v is num) conf[k.toString()] = v.toDouble();
-      });
-    }
     final bdRaw = json['birth_date'];
     return EkycResult(
       fullName: json['full_name'] as String?,
@@ -64,9 +57,91 @@ class EkycResult {
           bdRaw is String && bdRaw.isNotEmpty ? DateTime.tryParse(bdRaw) : null,
       governorate: json['governorate'] as String?,
       gender: json['gender'] as String?,
-      confidence: conf,
+      confidence: _confOf(json),
     );
   }
+}
+
+/// Structured result of a passport OCR scan (foreigner onboarding).
+///
+/// The passport carries no Egyptian National ID, so we capture the passport
+/// number + nationality (issuing country) instead. Names are available in
+/// English on the MRZ; the Arabic name is usually entered by the rep. Every
+/// field is nullable — the rep reviews before submit.
+class PassportResult {
+  final String? fullName;     // Arabic, if the vendor transliterates
+  final String? fullNameEn;   // Latin/MRZ name
+  final String? passportNumber;
+  final String? nationality;  // issuing country (Arabic)
+  final DateTime? birthDate;
+  final DateTime? expiryDate;
+  final String? gender;
+  final Map<String, double> confidence;
+
+  const PassportResult({
+    this.fullName,
+    this.fullNameEn,
+    this.passportNumber,
+    this.nationality,
+    this.birthDate,
+    this.expiryDate,
+    this.gender,
+    this.confidence = const {},
+  });
+
+  factory PassportResult.fromJson(Map<String, dynamic> json) {
+    DateTime? parse(String key) {
+      final raw = json[key];
+      return raw is String && raw.isNotEmpty ? DateTime.tryParse(raw) : null;
+    }
+
+    return PassportResult(
+      fullName: json['full_name'] as String?,
+      fullNameEn: json['full_name_en'] as String?,
+      passportNumber: json['passport_number'] as String?,
+      nationality: json['nationality'] as String?,
+      birthDate: parse('birth_date'),
+      expiryDate: parse('expiry_date'),
+      gender: json['gender'] as String?,
+      confidence: _confOf(json),
+    );
+  }
+}
+
+/// Generic OCR result for supporting documents (commercial register, tax card).
+///
+/// [fields] holds the extracted values keyed by form-field name, e.g.
+/// `{'commercial_reg': '12345', 'company_name': '...'}`. The caller pulls only
+/// the keys it cares about — keeps the facade open to richer extraction later
+/// (issue/expiry dates, legal name) without a new result type per document.
+class DocOcrResult {
+  final Map<String, String> fields;
+  final Map<String, double> confidence;
+
+  const DocOcrResult({this.fields = const {}, this.confidence = const {}});
+
+  factory DocOcrResult.fromJson(Map<String, dynamic> json) {
+    final f = <String, String>{};
+    final raw = json['fields'];
+    if (raw is Map) {
+      raw.forEach((k, v) {
+        if (v != null) f[k.toString()] = v.toString();
+      });
+    }
+    return DocOcrResult(fields: f, confidence: _confOf(json));
+  }
+}
+
+/// Shared parser for the `confidence` map present on every eKYC response.
+Map<String, double> _confOf(Map<String, dynamic> json) {
+  final conf = <String, double>{};
+  final raw = json['confidence'];
+  if (raw is Map) {
+    raw.forEach((k, v) {
+      if (v is num) conf[k.toString()] = v.toDouble();
+    });
+  }
+  return conf;
 }
 
 /// Vendor-neutral eKYC facade. The app only ever talks to [EkycService.instance]
@@ -79,7 +154,17 @@ class EkycResult {
 /// The real call lives server-side in `supabase/functions/ekyc-scan` so the
 /// vendor API key never ships in the app bundle.
 abstract class EkycService {
+  /// Egyptian National ID card (front). Returns identity + NID-derived fields.
   Future<EkycResult> scanNationalId(Uint8List imageBytes);
+
+  /// Foreign passport. Returns passport number + nationality + identity.
+  Future<PassportResult> scanPassport(Uint8List imageBytes);
+
+  /// Commercial register document — fetches `commercial_reg` (+ company name).
+  Future<DocOcrResult> scanCommercialRegister(Uint8List imageBytes);
+
+  /// Tax card document — fetches `tax_card` (tax registration number).
+  Future<DocOcrResult> scanTaxCard(Uint8List imageBytes);
 
   static EkycService _instance = _resolve();
   static EkycService get instance => _instance;
@@ -103,16 +188,33 @@ class EdgeFunctionEkycService implements EkycService {
   final String endpoint;
 
   @override
-  Future<EkycResult> scanNationalId(Uint8List imageBytes) async {
+  Future<EkycResult> scanNationalId(Uint8List imageBytes) async =>
+      EkycResult.fromJson(await _invoke(imageBytes, 'national_id'));
+
+  @override
+  Future<PassportResult> scanPassport(Uint8List imageBytes) async =>
+      PassportResult.fromJson(await _invoke(imageBytes, 'passport'));
+
+  @override
+  Future<DocOcrResult> scanCommercialRegister(Uint8List imageBytes) async =>
+      DocOcrResult.fromJson(await _invoke(imageBytes, 'commercial_register'));
+
+  @override
+  Future<DocOcrResult> scanTaxCard(Uint8List imageBytes) async =>
+      DocOcrResult.fromJson(await _invoke(imageBytes, 'tax_card'));
+
+  /// Single chokepoint to the Edge Function. `doc_type` tells the server which
+  /// document to OCR; the vendor key stays server-side.
+  Future<Map<String, dynamic>> _invoke(Uint8List bytes, String docType) async {
     try {
       final res = await Supabase.instance.client.functions.invoke(
         endpoint,
-        body: {'image_base64': base64Encode(imageBytes)},
+        body: {'image_base64': base64Encode(bytes), 'doc_type': docType},
       );
       if (res.status != 200 || res.data is! Map) {
         throw EkycException('eKYC service returned status ${res.status}');
       }
-      return EkycResult.fromJson(Map<String, dynamic>.from(res.data as Map));
+      return Map<String, dynamic>.from(res.data as Map);
     } on EkycException {
       rethrow;
     } catch (e) {
@@ -150,6 +252,47 @@ class MockEkycService implements EkycService {
         'national_id': 0.99,
         'address': 0.90,
       },
+    );
+  }
+
+  @override
+  Future<PassportResult> scanPassport(Uint8List imageBytes) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1400));
+    final yy = 1975 + _random.nextInt(30);
+    return PassportResult(
+      fullName: _foreignNames[_random.nextInt(_foreignNames.length)],
+      fullNameEn: _foreignNamesEn[_random.nextInt(_foreignNamesEn.length)],
+      // One letter + 8 digits — a generic, widely-valid passport shape.
+      passportNumber:
+          '${String.fromCharCode(65 + _random.nextInt(26))}${10000000 + _random.nextInt(89999999)}',
+      nationality: _nationalities[_random.nextInt(_nationalities.length)],
+      birthDate: DateTime(yy, 1 + _random.nextInt(12), 1 + _random.nextInt(28)),
+      expiryDate: DateTime(2028 + _random.nextInt(5), 1 + _random.nextInt(12), 1 + _random.nextInt(28)),
+      gender: _random.nextBool() ? 'ذكر' : 'أنثى',
+      confidence: const {'passport_number': 0.98, 'nationality': 0.95},
+    );
+  }
+
+  @override
+  Future<DocOcrResult> scanCommercialRegister(Uint8List imageBytes) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    return DocOcrResult(
+      fields: {
+        'commercial_reg': '${10000 + _random.nextInt(900000)}',
+        'company_name': _companyNames[_random.nextInt(_companyNames.length)],
+      },
+      confidence: const {'commercial_reg': 0.96},
+    );
+  }
+
+  @override
+  Future<DocOcrResult> scanTaxCard(Uint8List imageBytes) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    // Egyptian tax registration number — 9 digits.
+    final n = (100000000 + _random.nextInt(899999999)).toString();
+    return DocOcrResult(
+      fields: {'tax_card': n},
+      confidence: const {'tax_card': 0.96},
     );
   }
 
@@ -202,6 +345,29 @@ class MockEkycService implements EkycService {
     '٧ شارع البحر، محرم بك، الإسكندرية',
     '٢٢ شارع الهرم، الجيزة',
     '٣ شارع الجمهورية، المنصورة، الدقهلية',
+  ];
+
+  static const _foreignNames = [
+    'أحمد خالد المنصور',
+    'عمر عبد الرحمن الشامي',
+    'ليلى يوسف الحاج',
+    'خالد إبراهيم السوداني',
+  ];
+
+  static const _foreignNamesEn = [
+    'Ahmed Khaled Almansour',
+    'Omar Abdulrahman Alshami',
+    'Laila Youssef Alhaj',
+    'Khaled Ibrahim Alsudani',
+  ];
+
+  static const _nationalities = ['سوري', 'سعودي', 'أردني', 'سوداني', 'ليبي', 'يمني'];
+
+  static const _companyNames = [
+    'شركة النور للتجارة',
+    'مؤسسة الأمل التجارية',
+    'شركة المستقبل للاستثمار',
+    'مجموعة الرواد',
   ];
 
   // Governorate codes used by the generator — all within the trigger's 01–35

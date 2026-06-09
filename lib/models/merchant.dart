@@ -3,6 +3,7 @@ class Lead {
   final String name;
   final String phone;
   final String nationalId;
+  final String idDocumentType; // 'national_id' (Egyptian) | 'passport' (foreigner)
   final String notes;
   final List<String> products;
   final double? microfinanceAmount;
@@ -20,6 +21,7 @@ class Lead {
     required this.name,
     required this.phone,
     required this.nationalId,
+    this.idDocumentType = 'national_id',
     this.notes = '',
     this.products = const [],
     this.microfinanceAmount,
@@ -42,6 +44,7 @@ class Lead {
     String? name,
     String? phone,
     String? nationalId,
+    String? idDocumentType,
     String? notes,
     List<String>? products,
     double? Function()? microfinanceAmount,
@@ -59,6 +62,7 @@ class Lead {
       name: name ?? this.name,
       phone: phone ?? this.phone,
       nationalId: nationalId ?? this.nationalId,
+      idDocumentType: idDocumentType ?? this.idDocumentType,
       notes: notes ?? this.notes,
       products: products ?? this.products,
       microfinanceAmount: microfinanceAmount != null
@@ -111,6 +115,7 @@ class Lead {
       name: json['name'] as String? ?? '',
       phone: json['phone'] as String? ?? '',
       nationalId: json['national_id'] as String? ?? '',
+      idDocumentType: json['id_document_type'] as String? ?? 'national_id',
       notes: json['notes'] as String? ?? '',
       products: (json['products'] as List<dynamic>?)
           ?.map((e) => e as String)

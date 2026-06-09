@@ -9,16 +9,19 @@
 // Aman Sales App — Patrol golden-path regression test.
 //
 // Runs on a real Android emulator against the live pilot Supabase project.
-// The test is written to be idempotent and self-cleaning — every row it
-// creates carries `patrolRunTag` in its notes, and the `tearDown` deletes
-// those rows via the rep's JWT (RLS confines the delete to the test rep's
-// own merchants, so no service-role key is required in CI).
 //
-// Scope caveat: first-login change-password is NOT covered here. That flow
-// fires only once per rep and a durable test rep has already rotated past
-// it. Covering it would require provisioning a fresh rep every run, which
-// needs the service-role key in CI — a security budget we are not spending
-// for V1. Tracked in docs/PATROL-RUNBOOK.md.
+// Scope: this is a SHALLOW golden path — login → new-lead form → select all
+// three products → launch the unified onboarding wizard, asserting it opens on
+// the ID-scan step. Completing the wizard (ID scan → KYC → per-product modules
+// → documents → submit → merchant list → NID reveal) is NOT yet covered:
+//   - the ID scan needs a native image-picker interaction; a test seam to
+//     bypass the camera/gallery on CI does not exist yet,
+//   - the mock OCR overwrites the seeded NID, so reveal-assert + tag-based
+//     cleanup need a deterministic value first,
+//   - first-login change-password remains out of scope (durable rep).
+// Because the shallow path creates no merchant row, the tag-cleanup tearDown is
+// a no-op here. Restore deep coverage once the wizard has an injectable image
+// source. Tracked in docs/PATROL-RUNBOOK.md.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,7 +47,7 @@ final _config = const PatrolTesterConfig(
 
 void main() {
   patrolTest(
-    'golden path: login → create lead → list → profile → reveal NID',
+    'golden path: login → new lead → launch onboarding wizard',
     config: _config,
     ($) async {
       // Breadcrumbs: if patrol_cli hangs silently in CI again, the missing
@@ -76,11 +79,10 @@ void main() {
       final testPhone = generateTestPhone();
       final testNid = generateTestNationalId();
 
-      await _createLead($, phone: testPhone, nationalId: testNid);
-      await _assertLeadSuccess($);
-      await _openMerchantListFromHome($);
-      await _openMerchantProfile($);
-      await _revealNationalId($, testNid);
+      await _startOnboarding($, phone: testPhone, nationalId: testNid);
+      // Deep wizard coverage (ID scan → KYC → product modules → documents →
+      // submit → merchant list → NID reveal) is deferred — see the scope
+      // caveat at the top of this file.
     },
   );
 
@@ -108,16 +110,16 @@ Future<void> _loginAsTestRep(PatrolIntegrationTester $) async {
   // though enterText had ostensibly populated the field.
   await $.pumpAndSettle();
   print('[patrol] phone entered ($phoneDigits), tapping "تسجيل الدخول"');
-  await $('\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644').tap(); // تسجيل الدخول
+  await $('تسجيل الدخول').tap(); // تسجيل الدخول
   await $.pumpAndSettle();
 
   // Wait for the password screen to actually arrive before typing.
-  await $('\u062f\u062e\u0648\u0644')
+  await $('دخول')
       .waitUntilVisible(timeout: const Duration(seconds: 15)); // دخول button
   await $(TextField).enterText(_testPassword);
   await $.pumpAndSettle();
   print('[patrol] password entered (len=${_testPassword.length}), tapping "دخول"');
-  await $('\u062f\u062e\u0648\u0644').tap();
+  await $('دخول').tap();
   await $.pumpAndSettle();
   print('[patrol] login tap fired');
 }
@@ -127,7 +129,7 @@ Future<void> _dismissBiometricDialogOrWaitForHome(
   // The biometric opt-in dialog appears on devices with biometric hw + no
   // stored credentials. CI emulators don't have biometric hw, so the dialog
   // is reliably absent there.
-  final laterButton = $('\u0644\u0627\u062d\u0642\u0627\u064b'); // لاحقا
+  final laterButton = $('لاحقاً'); // لاحقا
   try {
     await $.pumpAndSettle(
       duration: const Duration(milliseconds: 500),
@@ -148,11 +150,11 @@ Future<void> _dismissBiometricDialogOrWaitForHome(
   // a screen we already know is broken. The error copy lives only on the
   // Scaffold SnackBar and fades after ~4s — the poll catches it while it
   // is still up.
-  final homeGreeting = $(RegExp(r'\u0623\u0647\u0644\u0627')); // "أهلا ..."
+  final homeGreeting = $(RegExp(r'أهلا')); // "أهلا ..."
   final unexpectedError =
-      $('\u062d\u062f\u062b \u062e\u0637\u0623 \u063a\u064a\u0631 \u0645\u062a\u0648\u0642\u0639'); // حدث خطأ غير متوقع
+      $('حدث خطأ غير متوقع'); // حدث خطأ غير متوقع
   final badCredentials =
-      $('\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062f\u062e\u0648\u0644 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d\u0629'); // بيانات الدخول غير صحيحة
+      $('بيانات الدخول غير صحيحة'); // بيانات الدخول غير صحيحة
 
   final deadline = DateTime.now().add(const Duration(seconds: 60));
   while (DateTime.now().isBefore(deadline)) {
@@ -195,17 +197,17 @@ Future<void> _dismissBiometricDialogOrWaitForHome(
 // so we can grep the CI LOGCAT| stream.
 void _reportScreenState(PatrolIntegrationTester $) {
   final checks = <String, String>{
-    'phone_entry:تسجيل الدخول': '\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644',
-    'password:دخول': '\u062f\u062e\u0648\u0644',
-    'password:كلمة المرور': '\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
-    'change_password:تعيين كلمة مرور جديدة': '\u062a\u0639\u064a\u064a\u0646 \u0643\u0644\u0645\u0629 \u0645\u0631\u0648\u0631 \u062c\u062f\u064a\u062f\u0629',
-    'change_password:حفظ': '\u062d\u0641\u0638',
-    'forgot_password:نسيت كلمة المرور': '\u0646\u0633\u064a\u062a \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
-    'error:فشل تسجيل الدخول': '\u0641\u0634\u0644 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644',
-    'error:بيانات الدخول غير صحيحة': '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u062f\u062e\u0648\u0644 \u063a\u064a\u0631 \u0635\u062d\u064a\u062d\u0629',
-    'error:يرجى إدخال كلمة المرور': '\u064a\u0631\u062c\u0649 \u0625\u062f\u062e\u0627\u0644 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631',
-    'main_shell:الرئيسية': '\u0627\u0644\u0631\u0626\u064a\u0633\u064a\u0629',
-    'biometric:لاحقا': '\u0644\u0627\u062d\u0642\u0627\u064b',
+    'phone_entry:تسجيل الدخول': 'تسجيل الدخول',
+    'password:دخول': 'دخول',
+    'password:كلمة المرور': 'كلمة المرور',
+    'change_password:تعيين كلمة مرور جديدة': 'تعيين كلمة مرور جديدة',
+    'change_password:حفظ': 'حفظ',
+    'forgot_password:نسيت كلمة المرور': 'نسيت كلمة المرور',
+    'error:فشل تسجيل الدخول': 'فشل تسجيل الدخول',
+    'error:بيانات الدخول غير صحيحة': 'بيانات الدخول غير صحيحة',
+    'error:يرجى إدخال كلمة المرور': 'يرجى إدخال كلمة المرور',
+    'main_shell:الرئيسية': 'الرئيسية',
+    'biometric:لاحقا': 'لاحقاً',
   };
   for (final entry in checks.entries) {
     final hit = $(entry.value).exists;
@@ -235,87 +237,28 @@ void _reportScreenState(PatrolIntegrationTester $) {
   } catch (_) {}
 }
 
-Future<void> _createLead(
+Future<void> _startOnboarding(
   PatrolIntegrationTester $, {
   required String phone,
   required String nationalId,
 }) async {
-  await $('\u062a\u0633\u062c\u064a\u0644 \u0639\u0645\u064a\u0644 \u062c\u062f\u064a\u062f').tap(); // تسجيل عميل جديد
+  await $('تسجيل عميل جديد').tap(); // تسجيل عميل جديد
 
-  // Every TextField on this form is anchored by its `InputDecoration.hintText`.
-  // Targeting the hint Text directly fails `waitUntilVisible` because Flutter's
-  // InputDecorator wraps the hint in IgnorePointer, making the inner RichText
-  // non-hit-testable. Walk up to the enclosing TextField (which IS hit-testable)
-  // via `.containing(pattern)` — this keeps the selector readable and resilient
-  // to form reorderings without requiring Keys on every field.
+  // Identity fields are anchored by their InputDecoration.hintText — walk up to
+  // the enclosing TextField (hit-testable) via `.containing(hint)`.
   await $(TextField)
-      .containing('\u0627\u062f\u062e\u0644 \u0627\u0633\u0645 \u0627\u0644\u062a\u0627\u062c\u0631') // ادخل اسم التاجر
+      .containing('ادخل اسم التاجر') // ادخل اسم التاجر
       .enterText(taggedName());
-
   await $(TextField).containing('01XXXXXXXXX').enterText(phone);
   await $(TextField).containing('XXXXXXXXXXXXXX').enterText(nationalId);
 
-  // Products — all three, to exercise every conditional detail field. Product
-  // rows are tappable GestureDetectors around Text labels, not TextFields, so
-  // the plain-text selector works.
-  await $('Microfinance').tap();
-  await $(TextField)
-      .containing('\u0627\u062f\u062e\u0644 \u0627\u0644\u0645\u0628\u0644\u063a') // ادخل المبلغ
-      .enterText('50000');
+  // Products render as Arabic-labelled checkboxes (productLabelAr).
+  await $('تمويل المشروعات').tap(); // Microfinance (business financing)
+  await $('دفع الفواتير').tap(); // BP POS
+  await $('نقاط البيع البنكية').tap(); // Acceptance POS
 
-  await $('BP POS').tap();
-
-  await $('Acceptance POS').tap();
-  await $(TextField)
-      .containing('\u0627\u062f\u062e\u0644 \u0639\u062f\u062f \u0627\u0644\u0623\u062c\u0647\u0632\u0629') // ادخل عدد الأجهزة
-      .enterText('3');
-
-  // Notes + submit live at the bottom of the form. By the time we reach them
-  // the soft keyboard has been up for five previous fields and may now cover
-  // them entirely, so waitUntilVisible rejects them as not hit-testable even
-  // though they're rendered. `.scrollTo()` walks to the enclosing Scrollable
-  // (the form's SingleChildScrollView) and scrolls the target into view.
-  await $(TextField)
-      .containing('\u0623\u0636\u0641 \u0645\u0644\u0627\u062d\u0638\u0627\u062a (\u0627\u062e\u062a\u064a\u0627\u0631\u064a)') // أضف ملاحظات (اختياري)
-      .scrollTo()
-      .enterText(taggedNotes());
-
-  // Submit — button reads "تسجيل".
-  await $('\u062a\u0633\u062c\u064a\u0644').scrollTo().tap();
-}
-
-Future<void> _assertLeadSuccess(PatrolIntegrationTester $) async {
-  await $('\u062a\u0645 \u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u0639\u0645\u064a\u0644 \u0628\u0646\u062c\u0627\u062d') // تم تسجيل العميل بنجاح
-      .waitUntilVisible(timeout: const Duration(seconds: 15));
-  await $('\u0627\u0644\u0639\u0648\u062f\u0629 \u0644\u0644\u0631\u0626\u064a\u0633\u064a\u0629').tap(); // العودة للرئيسية
-}
-
-Future<void> _openMerchantListFromHome(PatrolIntegrationTester $) async {
-  // Home stats card is tappable → merchant list.
-  await $('\u062a\u0645 \u0625\u0646\u0634\u0627\u0624\u0647\u0645 \u0647\u0630\u0627 \u0627\u0644\u0623\u0633\u0628\u0648\u0639') // تم إنشاؤهم هذا الأسبوع
-      .tap();
-  await $('\u0627\u0644\u0639\u0645\u0644\u0627\u0621').waitUntilVisible(); // العملاء (list title)
-}
-
-Future<void> _openMerchantProfile(PatrolIntegrationTester $) async {
-  // Tap the just-created merchant by name. The list is ordered newest-first
-  // so the tagged row is at the top, but matching by text is selector-stable
-  // either way.
-  await $(taggedName()).tap();
-  await $('\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0639\u0645\u064a\u0644') // بيانات العميل
-      .waitUntilVisible();
-}
-
-Future<void> _revealNationalId(
-    PatrolIntegrationTester $, String expectedNid) async {
-  // Before reveal: 14 masking bullets visible as NID placeholder.
-  expect($('*' * 14), findsOneWidget);
-  await $('\u0639\u0631\u0636').tap(); // عرض
-
-  // After reveal: bullets gone, the EXACT NID submitted for this run is
-  // visible. Asserting the literal value (rather than just the generator's
-  // fixed prefix) catches a whole class of regressions: reveal-RPC returning
-  // the wrong merchant's NID, client-side masking/unmasking state drift,
-  // or Vault decryption off-by-one.
-  await $(expectedNid).waitUntilVisible(timeout: const Duration(seconds: 10));
+  // Launch the unified onboarding wizard and confirm it opened on the first
+  // step (identity-document capture; nationality defaults to Egyptian).
+  await $('بدء التسجيل').scrollTo().tap();
+  await $('تصوير وثيقة الهوية').waitUntilVisible(timeout: const Duration(seconds: 10));
 }

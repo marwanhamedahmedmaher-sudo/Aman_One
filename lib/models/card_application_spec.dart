@@ -14,13 +14,19 @@ enum CAFieldKind { text, multiline, number, phone, email, date, dropdown, idImag
 /// Which customer track a field/step applies to.
 enum CATrack { both, individual, company }
 
+/// Which nationality a field/step applies to. Egyptians scan a National ID;
+/// foreigners scan a passport. Asked up-front (before the ID scan) so the right
+/// document and the right identity fields are shown.
+enum CANationality { both, egyptian, foreigner }
+
 class CAField {
   final String key;
   final String label; // Arabic label shown to the rep
   final CAFieldKind kind;
   final bool required;
   final CATrack track;
-  final bool prefill; // populated from the ID-card OCR scan
+  final CANationality nat;
+  final bool prefill; // populated from the ID-card / passport OCR scan
   final List<String> options; // for dropdown
   final String? hint;
 
@@ -30,6 +36,7 @@ class CAField {
     this.kind, {
     this.required = false,
     this.track = CATrack.both,
+    this.nat = CANationality.both,
     this.prefill = false,
     this.options = const [],
     this.hint,
@@ -66,7 +73,7 @@ const products = ['Microfinance', 'Acceptance POS', 'BP POS'];
 String productLabelAr(String product) {
   switch (product) {
     case 'Microfinance':
-      return 'التمويل الأصغر';
+      return 'تمويل المشروعات';
     case 'Acceptance POS':
       return 'نقاط البيع البنكية';
     case 'BP POS':
@@ -109,28 +116,32 @@ const _billServices = [
 
 const _loanPurposes = ['شراء بضاعة', 'توسعة النشاط', 'تجهيزات ومعدات', 'رأس مال عامل', 'أخرى'];
 
-const _nationalities = ['مصري', 'غير مصري'];
-
 const _capacities = ['صاحب النشاط', 'مدير', 'مفوّض بالتوقيع', 'شريك'];
 
 // ===== KYC core (collected ONCE, shared across all products) ===============
 
-// 1) ID card capture — front triggers the OCR pre-fill.
+// 1) Identity document capture — the front/passport triggers the OCR pre-fill.
+// Egyptians scan a National ID; foreigners scan a passport (chosen up-front).
 const CAStep _idStep = CAStep(
-  title: 'تصوير البطاقة',
-  subtitle: 'صوّر بطاقة الرقم القومي لملء البيانات تلقائياً',
+  title: 'تصوير وثيقة الهوية',
+  subtitle: 'صوّر بطاقة الرقم القومي أو جواز السفر لملء البيانات تلقائياً',
   icon: Icons.document_scanner_outlined,
   fields: [
+    // Egyptian — National ID card (front triggers NID OCR).
     CAField('id_front', 'صورة البطاقة (الوجه)', CAFieldKind.idImage,
-        required: true, prefill: true),
-    CAField('id_back', 'صورة البطاقة (الخلف)', CAFieldKind.idImage),
+        required: true, prefill: true, nat: CANationality.egyptian),
+    CAField('id_back', 'صورة البطاقة (الخلف)', CAFieldKind.idImage,
+        nat: CANationality.egyptian),
+    // Foreigner — passport (triggers passport OCR).
+    CAField('passport_image', 'صورة جواز السفر', CAFieldKind.idImage,
+        required: true, prefill: true, nat: CANationality.foreigner),
   ],
 );
 
-// 2) Personal ID-card data — pre-filled from the scan, rep reviews.
+// 2) Personal identity data — pre-filled from the scan, rep reviews.
 const CAStep _personalStep = CAStep(
-  title: 'بيانات البطاقة الشخصية',
-  subtitle: 'راجع البيانات المستخرجة من البطاقة',
+  title: 'البيانات الشخصية',
+  subtitle: 'راجع البيانات المستخرجة من الوثيقة',
   icon: Icons.badge_outlined,
   fields: [
     CAField('first_name', 'الاسم الأول', CAFieldKind.text,
@@ -139,14 +150,22 @@ const CAStep _personalStep = CAStep(
     CAField('third_name', 'الاسم الثالث', CAFieldKind.text, prefill: true),
     CAField('family_name', 'اللقب العائلي', CAFieldKind.text,
         required: true, prefill: true),
+    // Egyptian identity — 14-digit National ID.
     CAField('national_id', 'الرقم القومي', CAFieldKind.number,
-        required: true, prefill: true),
+        required: true, prefill: true, nat: CANationality.egyptian),
+    // Foreigner identity — passport number + nationality (country).
+    CAField('passport_number', 'رقم جواز السفر', CAFieldKind.text,
+        required: true, prefill: true, nat: CANationality.foreigner),
+    CAField('nationality_country', 'الجنسية', CAFieldKind.text,
+        required: true, prefill: true, nat: CANationality.foreigner),
     CAField('birth_date', 'تاريخ الميلاد', CAFieldKind.date,
         required: true, prefill: true),
     CAField('address', 'العنوان', CAFieldKind.multiline,
         required: true, prefill: true),
-    CAField('first_name_en', 'الاسم بالإنجليزية (First name)', CAFieldKind.text),
-    CAField('family_name_en', 'اللقب بالإنجليزية (Family name)', CAFieldKind.text),
+    CAField('first_name_en', 'الاسم بالإنجليزية (First name)', CAFieldKind.text,
+        prefill: true),
+    CAField('family_name_en', 'اللقب بالإنجليزية (Family name)', CAFieldKind.text,
+        prefill: true),
   ],
 );
 
@@ -159,10 +178,14 @@ const CAStep _businessStep = CAStep(
     CAField('shop_name_en', 'اسم المحل بالإنجليزية', CAFieldKind.text),
     CAField('legal_name_en', 'الاسم القانوني بالإنجليزية', CAFieldKind.text,
         track: CATrack.company),
+    // Auto-extracted from the document scans in the documents step (prefill);
+    // editable, so the rep can correct OCR or type manually if needed.
     CAField('commercial_reg', 'رقم السجل التجاري', CAFieldKind.text,
-        required: true, track: CATrack.company),
+        track: CATrack.company, prefill: true,
+        hint: 'يُستخرج تلقائياً من صورة السجل في خطوة المستندات'),
     CAField('tax_card', 'رقم البطاقة الضريبية', CAFieldKind.text,
-        required: true, track: CATrack.company),
+        track: CATrack.company, prefill: true,
+        hint: 'يُستخرج تلقائياً من صورة البطاقة الضريبية في خطوة المستندات'),
     CAField('activity_type', 'نوع النشاط', CAFieldKind.dropdown,
         required: true, options: _activityTypes),
     CAField('sub_specialty', 'التخصص الفرعي', CAFieldKind.text),
@@ -177,8 +200,8 @@ const CAStep _businessStep = CAStep(
     CAField('mobile', 'رقم محمول آخر', CAFieldKind.phone),
     CAField('work_phone', 'رقم هاتف العمل', CAFieldKind.phone),
     CAField('email', 'البريد الإلكتروني', CAFieldKind.email),
-    CAField('nationality', 'الجنسية', CAFieldKind.dropdown,
-        required: true, options: _nationalities),
+    // Nationality (Egyptian / foreigner) is chosen up-front on the first step,
+    // so it is no longer a business-step field.
     CAField('capacity', 'الصفة', CAFieldKind.dropdown,
         required: true, options: _capacities),
   ],
@@ -209,7 +232,7 @@ const List<CAStep> kycCoreSteps = [
 // ===== Per-product modules (delta fields only, namespaced keys) ============
 
 const CAStep _microfinanceModule = CAStep(
-  title: 'بيانات التمويل الأصغر',
+  title: 'بيانات تمويل المشروعات',
   icon: Icons.payments_outlined,
   fields: [
     CAField('mf_amount', 'المبلغ المطلوب', CAFieldKind.number, required: true),
@@ -271,6 +294,16 @@ const List<DocType> allDocTypes = [
   _docContract, _docCommercialReg, _docTaxCard,
   _docShopPhoto, _docDeviceAgreement, _docIncomeProof,
 ];
+
+/// Documents whose capture also runs OCR to *fetch* a value into a form field.
+/// Maps the document key -> the form-field key its scan populates. The wizard
+/// uses this to decide whether to OCR a captured document and where to put the
+/// result. Same eKYC facade as the National-ID scan — capturing the commercial
+/// register / tax card image extracts the number instead of a manual entry.
+const Map<String, String> ocrFetchDocs = {
+  'doc_commercial_reg': 'commercial_reg',
+  'doc_tax_card': 'tax_card',
+};
 
 /// Deduped union of documents required by the track + the selected products.
 /// A document needed by several products appears once. ID front/back are

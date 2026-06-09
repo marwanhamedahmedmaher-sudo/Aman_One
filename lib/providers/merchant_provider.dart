@@ -147,7 +147,7 @@ class LeadProvider extends ChangeNotifier {
     }
     if (_lead.products.contains('Microfinance') &&
         (_lead.microfinanceAmount == null || _lead.microfinanceAmount! <= 0)) {
-      return '\u0627\u062f\u062e\u0644 \u0627\u0644\u0645\u0628\u0644\u063a \u0644\u0644\u062a\u0645\u0648\u064a\u0644 \u0627\u0644\u0623\u0635\u063a\u0631'; // ادخل المبلغ للتمويل الأصغر
+      return '\u0627\u062f\u062e\u0644 \u0627\u0644\u0645\u0628\u0644\u063a \u0644\u062a\u0645\u0648\u064a\u0644 \u0627\u0644\u0645\u0634\u0631\u0648\u0639\u0627\u062a'; // ادخل المبلغ لتمويل المشروعات
     }
     if (_lead.products.contains('Acceptance POS') &&
         (_lead.acceptanceDeviceCount == null || _lead.acceptanceDeviceCount! < 1)) {
