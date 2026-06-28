@@ -49,15 +49,27 @@ class FieldTasksProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
 
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) {
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+
     try {
       await _loadConsent();
 
       // Idempotent: creates today's 3 tasks for this rep if missing.
+      // No-ops server-side for anyone who isn't an active sales rep.
       await _supabase.rpc('ensure_my_field_tasks');
 
+      // Scope to the caller's own tasks. RLS already enforces this for reps;
+      // the explicit filter also hides other reps' rows from supervisor/admin
+      // accounts that happen to open the app (their RLS read is broader).
       final data = await _supabase
           .from('field_tasks')
           .select('*, task_checkins(*)')
+          .eq('assigned_to', uid)
           .eq('task_date', today)
           .order('window_start', ascending: true);
 

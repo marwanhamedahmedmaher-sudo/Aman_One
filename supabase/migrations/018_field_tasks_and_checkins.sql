@@ -141,6 +141,7 @@ DECLARE
   _caller_id uuid;
   _consent   boolean;
   _status    text;
+  _role      text;
   _task      record;
   _in_window boolean;
 BEGIN
@@ -157,10 +158,15 @@ BEGIN
     RAISE EXCEPTION 'إحداثيات غير صحيحة' USING ERRCODE = '22023'; -- invalid coordinates
   END IF;
 
-  -- Consent + account-status gate.
-  SELECT location_consent, status INTO _consent, _status
+  -- Role + consent + account-status gate. Check-ins are SALES REP ONLY.
+  SELECT location_consent, status, role INTO _consent, _status, _role
   FROM public.users
   WHERE id = _caller_id;
+
+  IF _role IS DISTINCT FROM 'sales_rep' THEN
+    RAISE EXCEPTION 'تسجيل الموقع متاح لمناديب المبيعات فقط'
+      USING ERRCODE = '42501'; -- check-in is sales-rep-only
+  END IF;
 
   IF _status IS DISTINCT FROM 'active' THEN
     RAISE EXCEPTION 'الحساب غير مفعل' USING ERRCODE = '42501'; -- account not active
@@ -170,11 +176,12 @@ BEGIN
     RAISE EXCEPTION 'لم يتم منح إذن تسجيل الموقع' USING ERRCODE = '42501'; -- consent not granted
   END IF;
 
-  -- Task must exist and belong to the caller (admins may check in on any task).
+  -- Task must exist and belong to the calling rep. No admin/supervisor bypass —
+  -- only the assigned rep can submit their own check-in.
   SELECT * INTO _task
   FROM public.field_tasks
   WHERE id = p_task_id
-    AND (assigned_to = _caller_id OR public.is_admin());
+    AND assigned_to = _caller_id;
 
   IF _task.id IS NULL THEN
     RAISE EXCEPTION 'المهمة غير موجودة أو غير مصرح بالوصول'
