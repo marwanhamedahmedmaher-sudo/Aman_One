@@ -3,8 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/merchant.dart';
 import '../../models/task_assignment.dart';
+import '../../providers/field_tasks_provider.dart';
 import '../../providers/tasks_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/field_tasks_section.dart';
 import '../lead/new_lead_screen.dart';
 
 class TasksScreen extends StatefulWidget {
@@ -18,8 +20,10 @@ class _TasksScreenState extends State<TasksScreen> {
   @override
   void initState() {
     super.initState();
-    final provider = context.read<TasksProvider>();
-    Future.microtask(() => provider.loadTodaysTasks());
+    Future.microtask(() {
+      context.read<FieldTasksProvider>().loadTodaysTasks();
+      context.read<TasksProvider>().loadTodaysTasks();
+    });
   }
 
   @override
@@ -29,6 +33,8 @@ class _TasksScreenState extends State<TasksScreen> {
     return SafeArea(
       child: Column(
         children: [
+          // Supervisor's unified daily field schedule + per-task GPS check-in.
+          const FieldTasksSection(),
           // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
