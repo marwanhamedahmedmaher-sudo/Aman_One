@@ -158,6 +158,16 @@ jobs:
             # misreads Flutter's Play Signing cert chain. Our APKs are verified
             # separately by `apksigner verify` earlier in this job.
             "Application signed with debug certificate"
+            # minSdk=24 (Android 7.0) is Flutter's current default floor, not an
+            # app-specific choice. Pilot reps are on modern tablets; lowering the
+            # supported-version risk by raising minSdk would cut device coverage
+            # for no pilot benefit. Pilot-accepted; revisit at P2 hardening.
+            "App can be installed on a vulnerable unpatched Android version"
+            # AES/CBC + PKCS5/PKCS7 padding is reported in a TRANSITIVE dependency,
+            # not app code — the Aman app performs no client-side crypto (NIDs are
+            # Vault-encrypted server-side). Framework-level finding; pilot-accepted
+            # pending an upstream dependency audit at P2.
+            "uses the encryption mode CBC with PKCS5/PKCS7 padding"
           )
 
           APK="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
