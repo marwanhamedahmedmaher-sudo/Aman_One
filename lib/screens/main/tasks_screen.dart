@@ -20,9 +20,13 @@ class _TasksScreenState extends State<TasksScreen> {
   @override
   void initState() {
     super.initState();
+    // Capture providers synchronously (before the async gap) to avoid using
+    // BuildContext across an await — satisfies use_build_context_synchronously.
+    final fieldTasks = context.read<FieldTasksProvider>();
+    final tasks = context.read<TasksProvider>();
     Future.microtask(() {
-      context.read<FieldTasksProvider>().loadTodaysTasks();
-      context.read<TasksProvider>().loadTodaysTasks();
+      fieldTasks.loadTodaysTasks();
+      tasks.loadTodaysTasks();
     });
   }
 
