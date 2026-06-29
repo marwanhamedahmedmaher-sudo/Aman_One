@@ -7,6 +7,11 @@ on:
         description: 'APK filename suffix (e.g. 1.0.0-pilot)'
         required: true
         default: '1.0.0-pilot'
+  # TEMPORARY: auto-build on push to the field-tasks branch so the pilot APK
+  # can be produced without manual workflow_dispatch. Revert once validated.
+  push:
+    branches:
+      - claude/hopeful-euler-9gs6od
 
 jobs:
   build:
@@ -276,7 +281,10 @@ jobs:
 
       - name: Sanitize version and rename APKs
         run: |
-          VERSION_SAFE=$(printf '%s' "${{ inputs.version_name }}" | tr -cd '[:alnum:]._-')
+          # On push events there is no workflow input — fall back to a default.
+          VERSION_NAME="${{ inputs.version_name }}"
+          VERSION_NAME="${VERSION_NAME:-1.1.0-fieldtasks-pilot}"
+          VERSION_SAFE=$(printf '%s' "$VERSION_NAME" | tr -cd '[:alnum:]._-')
           if [ -z "$VERSION_SAFE" ]; then
             echo "::error::version_name contained no allowed characters ([A-Za-z0-9._-])"
             exit 1
