@@ -7,11 +7,6 @@ on:
         description: 'APK filename suffix (e.g. 1.0.0-pilot)'
         required: true
         default: '1.0.0-pilot'
-  # TEMPORARY: auto-build on push to the field-tasks branch so the pilot APK
-  # can be produced without manual workflow_dispatch. Revert once validated.
-  push:
-    branches:
-      - claude/hopeful-euler-9gs6od
 
 jobs:
   build:
