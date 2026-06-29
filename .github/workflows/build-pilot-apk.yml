@@ -157,16 +157,24 @@ jobs:
             # misreads Flutter's Play Signing cert chain. Our APKs are verified
             # separately by `apksigner verify` earlier in this job.
             "Application signed with debug certificate"
-            # minSdk=24 (Android 7.0) is Flutter's current default floor, not an
-            # app-specific choice. Pilot reps are on modern tablets; lowering the
-            # supported-version risk by raising minSdk would cut device coverage
-            # for no pilot benefit. Pilot-accepted; revisit at P2 hardening.
-            "App can be installed on a vulnerable unpatched Android version"
-            # AES/CBC + PKCS5/PKCS7 padding is reported in a TRANSITIVE dependency,
-            # not app code — the Aman app performs no client-side crypto (NIDs are
-            # Vault-encrypted server-side). Framework-level finding; pilot-accepted
-            # pending an upstream dependency audit at P2.
-            "uses the encryption mode CBC with PKCS5/PKCS7 padding"
+            # AES/CBC + PKCS5/7 padding — MobSF flags the string literal
+            # statically regardless of whether the caller authenticates
+            # the ciphertext. Source is third-party: flutter_secure_storage
+            # keeps a CBC fallback path for Android API <23 (unreachable
+            # now that minSdk=26), and the Supabase/gotrue websocket layer
+            # ships its own jose impl. User data in transit is protected
+            # by Supabase TLS + RLS; the only sensitive at-rest field
+            # (merchants.national_id) is server-side Vault-encrypted
+            # (pgsodium TCE), never client-CBC. Revisit if we ever add
+            # our own CBC crypto — audit the specific call site first.
+            "encryption mode CBC"
+            # Residual minSdk warning if MobSF still flags 8.x/9.x as
+            # unpatched EOL Android after the minSdk=26 bump. Pilot
+            # hardware is a controlled cohort (managed tablets on
+            # Android 10+); revisit if we broaden distribution beyond
+            # pilot reps.
+            "vulnerable unpatched Android version 8"
+            "vulnerable unpatched Android version 9"
           )
 
           APK="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"

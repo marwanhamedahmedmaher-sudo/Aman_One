@@ -30,7 +30,12 @@ android {
 
     defaultConfig {
         applicationId = "com.aman.aman_sales_app"
-        minSdk = flutter.minSdkVersion
+        // minSdk 26 (Android 8.0, Aug 2017). Flutter's default here is 24
+        // (Android 7.0 Nougat, Aug 2016) which MobSF's security gate
+        // rejects as "vulnerable unpatched Android" — Google stopped
+        // shipping Nougat security patches in 2019. Every pilot-rep
+        // tablet is newer than Oreo, so dropping 7.x costs us nothing.
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
