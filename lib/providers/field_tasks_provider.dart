@@ -1,33 +1,38 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/field_task.dart';
+import '../models/task_visit.dart';
 import '../services/analytics.dart';
-import '../services/location_service.dart';
 
-/// Outcome of a check-in attempt, so the UI can show the right message.
-class CheckinOutcome {
+/// Outcome of logging a visit, so the UI can show the right message.
+class VisitOutcome {
   final bool success;
   final bool inWindow;
   final String? error;
-  const CheckinOutcome({required this.success, this.inWindow = false, this.error});
+  const VisitOutcome({required this.success, this.inWindow = false, this.error});
 }
 
-/// Drives the unified daily field-visit schedule + per-task GPS check-ins.
+/// Drives the unified daily field-visit schedule. Each of the 3 daily tasks is
+/// an entry point to a multi-visit log: the rep opens a task, taps "أدخل زيارة"
+/// and fills a per-mission form (GPS + photo + counts + notes), then explicitly
+/// marks the task done.
 class FieldTasksProvider extends ChangeNotifier {
   final _supabase = Supabase.instance.client;
 
   List<FieldTask> _tasks = [];
+  final Map<String, int> _visitCounts = {}; // task_id -> number of logged visits
   bool _isLoading = false;
   bool _locationConsent = false;
   String? _error;
   String? _cachedDate;
-  final Set<String> _submitting = {}; // task ids with an in-flight check-in
+  final Set<String> _busy = {}; // task ids with an in-flight write
 
   List<FieldTask> get tasks => _tasks;
   bool get isLoading => _isLoading;
   bool get locationConsent => _locationConsent;
   String? get error => _error;
-  bool isSubmitting(String taskId) => _submitting.contains(taskId);
+  int visitCount(String taskId) => _visitCounts[taskId] ?? 0;
+  bool isBusy(String taskId) => _busy.contains(taskId);
 
   /// Current date in Cairo time (UTC+2; Egypt has no DST).
   static String _cairoToday() {
@@ -36,12 +41,13 @@ class FieldTasksProvider extends ChangeNotifier {
   }
 
   /// Load today's field tasks for the current rep. Generates them via the
-  /// idempotent RPC first, then fetches with the embedded check-in.
+  /// idempotent RPC first, then fetches each task with its visit count.
   Future<void> loadTodaysTasks() async {
     final today = _cairoToday();
     if (_cachedDate == today && _tasks.isNotEmpty) return;
     if (_cachedDate != today) {
       _tasks = [];
+      _visitCounts.clear();
       _cachedDate = null;
     }
 
@@ -68,14 +74,19 @@ class FieldTasksProvider extends ChangeNotifier {
       // accounts that happen to open the app (their RLS read is broader).
       final data = await _supabase
           .from('field_tasks')
-          .select('*, task_checkins(*)')
+          .select('*, task_templates(slug), task_visits(count)')
           .eq('assigned_to', uid)
           .eq('task_date', today)
           .order('window_start', ascending: true);
 
-      _tasks = (data as List)
-          .map((row) => FieldTask.fromJson(row as Map<String, dynamic>))
-          .toList();
+      _tasks = [];
+      _visitCounts.clear();
+      for (final row in (data as List)) {
+        final map = row as Map<String, dynamic>;
+        final task = FieldTask.fromJson(map);
+        _tasks.add(task);
+        _visitCounts[task.id] = _extractCount(map['task_visits']);
+      }
       _cachedDate = today;
     } catch (_) {
       _error = 'حدث خطأ أثناء تحميل مهام اليوم';
@@ -83,6 +94,14 @@ class FieldTasksProvider extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  /// PostgREST returns an aggregate embed as `[{count: n}]`.
+  static int _extractCount(dynamic raw) {
+    if (raw is List && raw.isNotEmpty && raw.first is Map) {
+      return (raw.first['count'] as num?)?.toInt() ?? 0;
+    }
+    return 0;
   }
 
   Future<void> _loadConsent() async {
@@ -100,7 +119,7 @@ class FieldTasksProvider extends ChangeNotifier {
     }
   }
 
-  /// Record the rep's one-time opt-in to location check-ins.
+  /// Record the rep's one-time opt-in to location capture.
   Future<bool> grantConsent() async {
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) return false;
@@ -120,69 +139,132 @@ class FieldTasksProvider extends ChangeNotifier {
     }
   }
 
-  /// Capture a GPS fix and submit it as this task's check-in.
-  /// Caller must ensure consent is granted first.
-  Future<CheckinOutcome> submitCheckin(FieldTask task) async {
-    if (_submitting.contains(task.id)) {
-      return const CheckinOutcome(success: false);
+  /// Fetch the logged visits for one task (newest first), with joined
+  /// governorate + branch names for display.
+  Future<List<TaskVisit>> fetchVisits(String taskId) async {
+    final data = await _supabase
+        .from('task_visits')
+        .select('*, governorates(name_ar), aman_branches(name_ar)')
+        .eq('task_id', taskId)
+        .order('recorded_at', ascending: false);
+    return (data as List)
+        .map((r) => TaskVisit.fromJson(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Log one visit via the record_task_visit RPC. The caller has already
+  /// captured the GPS fix and uploaded the photo (passing [photoPath]).
+  Future<VisitOutcome> addVisit({
+    required String taskId,
+    required double lat,
+    required double lng,
+    double? accuracyM,
+    required DateTime recordedAt,
+    required String photoPath,
+    required int contactedCount,
+    required int onboardedCount,
+    int? governorateId,
+    String notes = '',
+    String? placeKind,
+    String? placeName,
+    List<String>? products,
+    String? merchantName,
+    String? businessName,
+    String? branchId,
+    String? templateSlug, // for analytics only
+  }) async {
+    if (_busy.contains(taskId)) {
+      return const VisitOutcome(success: false);
     }
-    _submitting.add(task.id);
+    _busy.add(taskId);
     _error = null;
     notifyListeners();
 
     try {
-      final loc = await LocationService.getCurrentPosition();
-      if (!loc.isSuccess) {
-        await Analytics.track('field_task_checkin_failed',
-            properties: {'reason': 'location_unavailable', 'task_id': task.id});
-        return CheckinOutcome(success: false, error: loc.error);
+      final result = await _supabase.rpc('record_task_visit', params: {
+        'p_task_id': taskId,
+        'p_lat': lat,
+        'p_lng': lng,
+        'p_recorded_at': recordedAt.toUtc().toIso8601String(),
+        'p_photo_path': photoPath,
+        'p_contacted_count': contactedCount,
+        'p_onboarded_count': onboardedCount,
+        'p_accuracy_m': accuracyM,
+        'p_governorate_id': governorateId,
+        'p_notes': notes,
+        'p_place_kind': placeKind,
+        'p_place_name': placeName,
+        'p_products': products,
+        'p_merchant_name': merchantName,
+        'p_business_name': businessName,
+        'p_branch_id': branchId,
+      });
+
+      // RPC returns TABLE(visit_id, in_window) -> a single-row list.
+      var inWindow = false;
+      if (result is List && result.isNotEmpty && result.first is Map) {
+        inWindow = (result.first as Map)['in_window'] as bool? ?? false;
       }
 
-      final pos = loc.position!;
-      final inWindow = await _supabase.rpc(
-        'record_task_checkin',
-        params: {
-          'p_task_id': task.id,
-          'p_lat': pos.latitude,
-          'p_lng': pos.longitude,
-          'p_accuracy_m': pos.accuracy,
-          'p_recorded_at': pos.timestamp.toUtc().toIso8601String(),
-        },
-      ) as bool;
-
-      // Reflect the new check-in + completed status locally.
-      _tasks = _tasks.map((t) {
-        if (t.id != task.id) return t;
-        return t.copyWith(
-          status: 'completed',
-          checkin: TaskCheckin(
-            lat: pos.latitude,
-            lng: pos.longitude,
-            accuracyM: pos.accuracy,
-            recordedAt: pos.timestamp,
-            inWindow: inWindow,
-          ),
-        );
-      }).toList();
+      // Reflect locally: bump the count and move the task to in_progress.
+      _visitCounts[taskId] = (_visitCounts[taskId] ?? 0) + 1;
+      _tasks = _tasks
+          .map((t) => t.id == taskId && t.status == 'pending'
+              ? t.copyWith(status: 'in_progress')
+              : t)
+          .toList();
       notifyListeners();
 
-      await Analytics.track('field_task_checkin_submitted', properties: {
-        'task_id': task.id,
-        'template_id': task.templateId,
+      await Analytics.track('field_visit_added', properties: {
+        'task_id': taskId,
+        'template_slug': templateSlug,
         'in_window': inWindow,
+        'governorate_id': governorateId,
+        'contacted_count': contactedCount,
+        'onboarded_count': onboardedCount,
+        'has_photo': photoPath.isNotEmpty,
       });
-      return CheckinOutcome(success: true, inWindow: inWindow);
+      return VisitOutcome(success: true, inWindow: inWindow);
     } on PostgrestException catch (e) {
-      await Analytics.track('field_task_checkin_failed',
-          properties: {'reason': 'postgrest', 'pg_code': e.code, 'task_id': task.id});
-      return CheckinOutcome(success: false, error: e.message);
+      await Analytics.track('field_visit_failed',
+          properties: {'reason': 'postgrest', 'pg_code': e.code, 'task_id': taskId});
+      return VisitOutcome(success: false, error: e.message);
     } catch (_) {
-      await Analytics.track('field_task_checkin_failed',
-          properties: {'reason': 'unexpected', 'task_id': task.id});
-      return const CheckinOutcome(
-          success: false, error: 'حدث خطأ أثناء تسجيل الموقع');
+      await Analytics.track('field_visit_failed',
+          properties: {'reason': 'unexpected', 'task_id': taskId});
+      return const VisitOutcome(
+          success: false, error: 'حدث خطأ أثناء تسجيل الزيارة');
     } finally {
-      _submitting.remove(task.id);
+      _busy.remove(taskId);
+      notifyListeners();
+    }
+  }
+
+  /// Explicitly mark a task done (requires >= 1 visit, enforced server-side).
+  Future<bool> completeTask(String taskId) async {
+    if (_busy.contains(taskId)) return false;
+    _busy.add(taskId);
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _supabase.rpc('complete_field_task', params: {'p_task_id': taskId});
+      _tasks = _tasks
+          .map((t) => t.id == taskId ? t.copyWith(status: 'completed') : t)
+          .toList();
+      notifyListeners();
+      await Analytics.track('field_task_completed', properties: {'task_id': taskId});
+      return true;
+    } on PostgrestException catch (e) {
+      _error = e.message;
+      notifyListeners();
+      return false;
+    } catch (_) {
+      _error = 'حدث خطأ أثناء إنهاء المهمة';
+      notifyListeners();
+      return false;
+    } finally {
+      _busy.remove(taskId);
       notifyListeners();
     }
   }

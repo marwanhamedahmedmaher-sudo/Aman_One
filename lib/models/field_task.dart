@@ -3,19 +3,21 @@
 class FieldTask {
   final String id;
   final String? templateId;
+  final String? templateSlug; // joined from task_templates — the mission key
   final String title;
   final String description;
   final String address;
   final DateTime windowStart;
   final DateTime windowEnd;
-  final String status; // 'pending' | 'completed' | 'skipped'
+  final String status; // 'pending' | 'in_progress' | 'completed' | 'skipped'
 
-  // Embedded check-in (null until the rep submits their location).
+  // Embedded check-in (legacy single check-in; null in the multi-visit flow).
   final TaskCheckin? checkin;
 
   const FieldTask({
     required this.id,
     this.templateId,
+    this.templateSlug,
     required this.title,
     this.description = '',
     this.address = '',
@@ -45,9 +47,19 @@ class FieldTask {
       checkinMap = Map<String, dynamic>.from(raw.first as Map);
     }
 
+    // task_templates embed (to-one): object or single-element list.
+    final tpl = json['task_templates'];
+    String? slug;
+    if (tpl is Map) {
+      slug = tpl['slug'] as String?;
+    } else if (tpl is List && tpl.isNotEmpty && tpl.first is Map) {
+      slug = (tpl.first as Map)['slug'] as String?;
+    }
+
     return FieldTask(
       id: json['id'] as String,
       templateId: json['template_id'] as String?,
+      templateSlug: slug,
       title: json['title'] as String? ?? '',
       description: json['description'] as String? ?? '',
       address: json['address'] as String? ?? '',
@@ -62,6 +74,7 @@ class FieldTask {
     return FieldTask(
       id: id,
       templateId: templateId,
+      templateSlug: templateSlug,
       title: title,
       description: description,
       address: address,

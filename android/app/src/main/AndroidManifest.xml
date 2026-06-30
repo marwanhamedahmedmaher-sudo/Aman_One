@@ -6,6 +6,10 @@
          "submit location" button while the app is open. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- Camera for the required "photo of the place" on each field visit.
+         Gallery picking on Android 13+ uses the system photo picker (no
+         storage permission needed). -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     <application
         android:label="Aman One"
         android:name="${applicationName}"
