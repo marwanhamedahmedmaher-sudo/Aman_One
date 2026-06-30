@@ -4,6 +4,154 @@ Session log entries rotated out of `CLAUDE.md`. Newest first within this file.
 
 ---
 
+### Session: 2026-04-17 (late evening) — Patrol regression harness wired: golden-path on Android emulator
+**Duration:** ~45m
+**Focus:** Stand up the first automated regression test so the pilot pipeline has a gate in front of the signed-APK step. Previous sessions left this as the top Next Session item — user picked Patrol over Maestro/Appium.
+**Completed:**
+- **Patrol 3.x + integration_test wiring**:
+  - `patrol: ^3.13.0` + `integration_test` added to dev_dependencies in [pubspec.yaml](pubspec.yaml); `patrol:` config block names the Android package so the CLI can discover the test runner.
+  - Android test instrumentation: [android/app/build.gradle.kts](android/app/build.gradle.kts) gets `testInstrumentationRunner = "pl.leancode.patrol.PatrolJUnitRunner"` + `clearPackageData=true` + `ANDROIDX_TEST_ORCHESTRATOR` execution + `androidx.test:orchestrator` util dep. Parameterized runner stub at [android/app/src/androidTest/java/com/aman/aman_sales_app/MainActivityTest.java](android/app/src/androidTest/java/com/aman/aman_sales_app/MainActivityTest.java).
+- **Golden-path test** [integration_test/patrol_test.dart](integration_test/patrol_test.dart) covers, in order:
+  1. Phone entry (11-digit Egyptian mobile, normalized from `PATROL_TEST_PHONE` if supplied as E.164) → tap "تسجيل الدخول".
+  2. Password entry from `PATROL_TEST_PASSWORD` → tap "دخول".
+  3. Defensive biometric opt-in dialog dismiss (3-second wait, tap "لاحقا" if surfaced — CI emulators lack biometric hw so it's usually absent).
+  4. Home assertion (Arabic "أهلا" greeting visible).
+  5. New-lead form — all 3 products checked (`Microfinance` with `50000` amount, `BP POS`, `Acceptance POS` with `3` devices), plus tagged name/notes carrying the run's `patrolRunTag`.
+  6. Submit → success screen "تم تسجيل العميل بنجاح" → "العودة للرئيسية".
+  7. Home stats card tap "تم إنشاؤهم هذا الأسبوع" → merchant list.
+  8. Tap tagged row → profile "بيانات العميل".
+  9. NID pre-reveal: assert 14 bullets `*************`. Tap "عرض". Post-reveal: regex-assert `^28501010\d{6}$` (fixed prefix from the test NID generator).
+- **Test data generators** [integration_test/helpers/test_data.dart](integration_test/helpers/test_data.dart):
+  - `patrolRunTag` = `PATROL-TEST-<UTC yyyymmdd-hhmmss>-<6-hex>` — unique per run, survives parallel runs, trivially globbable for cleanup.
+  - `generateTestPhone()` → `0109999XXXX` (Vodafone 010 prefix, 9999 non-allocated bucket, 4 random digits).
+  - `generateTestNationalId()` → `28501010` (century 2 + 1985-01-01 + Cairo gov 01) + 6 random digits. Passes migration 003's trigger (century, YYMMDD, governorate, digit-count) without needing a real checksum since V1 accepts any digit for position 14.
+- **Cleanup** [integration_test/helpers/test_cleanup.dart](integration_test/helpers/test_cleanup.dart): `tearDown` calls `cleanupMerchantsByTag(patrolRunTag)` which runs a `DELETE FROM merchants WHERE notes LIKE '%<tag>%'` via the authenticated rep's JWT. RLS confines the delete to the rep's own rows, so **no service-role key is needed in CI**. `audit_log` rows are retained by design (V1 forensic record).
+- **CI workflow** [.github/workflows/patrol-regression.yml](.github/workflows/patrol-regression.yml): Ubuntu + `reactivecircus/android-emulator-runner@v2` API 33 google_apis x86_64 on a Pixel 6 profile. KVM enabled for ~30s emulator boot (vs minutes with swiftshader). Two-phase emulator step — first creates+caches the AVD snapshot, second runs Patrol against the warm snapshot. Triggers on PR when `lib/`/`pubspec.yaml`/`pubspec.lock`/`integration_test/`/`android/`/the workflow itself changes; also manual `workflow_dispatch`. Concurrency group per ref so parallel PR runs don't collide on prod's dedup constraints. All 4 secrets fail-fast validated before the Patrol invocation. Failure uploads `patrol-failure-logs` artifact with 14-day retention.
+- **Runbook** [docs/PATROL-RUNBOOK.md](docs/PATROL-RUNBOOK.md) covers: one-time test-rep provisioning via `scripts/provision_rep.sh` + password rotation, GH secret setup, local `patrol test` invocation, recovery SQL for crashed-run leftovers, common failure modes.
+**Decisions:**
+- **Prod Supabase, not dev.** User directive — accept the cost of polluting prod `audit_log` with a trickle of test rows in exchange for testing what actually ships. Tag-based row cleanup keeps `merchants` clean; audit retention is V1 policy anyway.
+- **No service-role key in CI.** Cleanup uses the rep's own JWT + RLS. Cheaper security posture than adding another long-lived admin credential to the Actions secret store.
+- **Skip first-login change-password in golden path.** Documented as a known gap. Covering it would require provisioning a fresh rep every run (service-role in CI) or running it as an optional workflow triggered only when the change-password code is touched. Revisit when admin graduates to Option C2 (Edge Function).
+- **Durable test rep, rotation-free.** A fresh-per-run rep would make change-password coverage trivial but doubles the provisioning blast radius. One rep, one post-rotation password stored in GH secrets, rotated manually when Marwan wants.
+- **Anchor finders on Arabic strings + widget types, not widget keys.** Keeps the test readable in context and avoids littering feature code with `Key('...')` nodes just for testing. Tradeoff: if a screen's Arabic copy changes the test breaks — the runbook lists this as the #1 failure mode.
+- **Use existing pilot APK at runtime (debug-signed from Patrol's flutter-build).** No keystore needed for the test build; Patrol uses a debug signature which doesn't conflict with any release install because the emulator is wiped between AVD cache warmups.
+**Backlog impact:**
+- **P1-14 added — IN_PROGRESS.** Not pilot-blocking (pilot can ship without it) but the highest-ROI infra investment before rollout scales. Status stays `IN_PROGRESS` until the first green CI run lands.
+- No other backlog changes.
+**Blockers now:** 0 active.
+**Files changed:**
+- `pubspec.yaml` (+7 lines — patrol/integration_test deps + patrol config block)
+- `android/app/build.gradle.kts` (+7 lines — instrumentation runner + orchestrator)
+- `android/app/src/androidTest/java/com/aman/aman_sales_app/MainActivityTest.java` (new, ~35 lines — Patrol JUnit runner stub)
+- `integration_test/patrol_test.dart` (new, ~170 lines — golden path)
+- `integration_test/helpers/test_data.dart` (new, ~35 lines — generators)
+- `integration_test/helpers/test_cleanup.dart` (new, ~25 lines — rep-JWT delete)
+- `.github/workflows/patrol-regression.yml` (new, ~115 lines — CI)
+- `docs/PATROL-RUNBOOK.md` (new, ~155 lines)
+- `CLAUDE.md` (P1-14 row, this entry, rotation)
+- `CLAUDE.archive.md` (rotated 2026-04-16 late-late-night entry)
+**Pending user action (required before first CI run):**
+1. Provision the durable Patrol test rep against **prod** — follow [docs/PATROL-RUNBOOK.md](docs/PATROL-RUNBOOK.md) § "One-time setup". Suggested phone: `+201099990000`. Log in with the temp password from `scripts/provision_rep.sh`, rotate it, save the final password.
+2. Add 2 new GitHub Actions secrets: `PATROL_TEST_PHONE` and `PATROL_TEST_PASSWORD` (the rotated password, not the temp). `SUPABASE_URL` and `SUPABASE_ANON_KEY` are already set from the build workflow — reused, no duplication needed.
+3. Trigger `Patrol Regression` workflow manually from `main` first — this warms the AVD cache (~15–20 min cold). Subsequent runs are ~5–8 min.
+4. When the first run is green, flip P1-14 from `IN_PROGRESS` to `DONE <date>`.
+**Next Session:**
+1. **Pentest automation** — now that regression is wired, stand up the security layer. Two parallel tracks recommended: (a) MobSF Docker step inside `.github/workflows/build-pilot-apk.yml` after the existing `apktool` decompile (hard-fail on High/Critical, baseline Flutter-framework false positives in a yaml allowlist); (b) RLS fuzzing via a Dart script that walks a matrix of PostgREST calls with differently-signed rep JWTs to prove cross-rep reads/writes get rejected.
+2. **Two CodeRabbit follow-ups still unopened from 2026-04-17 afternoon** — Security Definer hardening (`SET search_path` + `set_claim` internal-only) and the RTL fix in `forgot_password_screen.dart:19`. File before pilot traffic accumulates.
+3. If Patrol stabilizes and proves useful, expand the golden path into feature-specific tests triggered by path filters (e.g. tasks feature test only on `lib/providers/tasks_provider.dart` changes) — keeps individual runs fast while widening coverage.
+
+---
+
+### Session: 2026-04-17 (post-prod-smoke) — Product analytics wired: Mixpanel + vendor-neutral Analytics facade
+**Duration:** ~40m
+**Focus:** Stand up pilot product analytics so rep-behaviour funnels are observable from day one of rollout. Previous sessions already proved the prod pipeline works; now we need telemetry to actually learn from pilot usage.
+**Completed:**
+- **Vendor choice**: Mixpanel over PostHog — both now ship session replay (PostHog and Mixpanel launched it 2024), and Mixpanel's free tier (20M events/mo) is ~20× PostHog's at this volume. Residency was the usual blocker (Mixpanel is US-hosted), but per product call it's acceptable because **rep-behaviour events carry no merchant PII** — merchant NIDs, phones, and names stay in Supabase's eu-west-1 under the existing PDPL posture. See new Current Decisions entry.
+- **Vendor-neutral `Analytics` facade** in [lib/services/analytics.dart](lib/services/analytics.dart): sink abstraction with `_MixpanelSink` + `_NoopSink`, `init`/`identify`/`track`/`reset` surface, and a debug-mode `assert` that throws `StateError` on any property key matching `national_id|nid_hash|\bnid\b|phone|password|merchant_name|full_name`. The noop sink prints to `debugPrint` so local dev shows events without needing a token. Token arrives via `--dart-define=MIXPANEL_TOKEN`; empty string → NoopSink. Swap-out stays a single-file change if we ever migrate to PostHog / self-hosted / Amplitude.
+- **SDK wiring**: `mixpanel_flutter: ^2.3.1` added to `pubspec.yaml`, resolved to `2.6.2`. `flutter pub get` clean.
+- **Event coverage** — auth funnel + lead funnel + merchant interactions:
+  - `auth_provider.dart`: `login_succeeded` / `login_failed` (with `reason`: `no_user` / `auth_exception` / `unexpected`), `identify(repId)` on success, `password_changed` (with `was_forced` captured before the flag flips), `password_change_failed`, `biometric_enabled`, `biometric_login_attempted` / `biometric_login_failed` (with `reason`: `user_cancelled` / `no_credentials`), `logged_out` + `reset()`.
+  - `merchant_provider.dart` (LeadProvider): `lead_product_selected` / `lead_product_deselected`, `lead_submit_attempted` (captures product list, optional-field presence, `notes_length`), `lead_submit_succeeded` (products + count), `lead_submit_failed` (with `reason`: `duplicate_nid` / `invalid_phone` / `invalid_nid` / `postgrest_other` / `unexpected`, plus `pg_code`).
+  - `new_lead_screen.dart`: `lead_form_opened` (with `from_task` bool), `lead_validation_failed`.
+  - `merchant_list_provider.dart`: `nid_revealed` (with `merchant_id` UUID only — complements the server-side `audit_log` row for the same intent), `nid_reveal_failed`.
+  - `merchant_list_screen.dart`: `merchant_list_viewed`.
+  - `merchant_profile_screen.dart`: `merchant_profile_viewed` (with status + product count).
+  - `main.dart`: `app_started` on boot.
+- **CI wiring**: [.github/workflows/build-pilot-apk.yml](.github/workflows/build-pilot-apk.yml) passes `MIXPANEL_TOKEN` via `--dart-define`. Secret is optional — if unset, the build still succeeds and events route to NoopSink. Existing secret-scan gate (`service_role|supabase_service_role|SERVICE_ROLE_KEY`) needs no changes — Mixpanel project tokens are non-secret (like Supabase anon keys) and don't match the blocklist.
+- **`flutter analyze` clean** after all wiring.
+**Decisions:**
+- **Residency explicitly not a concern for rep behaviour events.** Recorded as a Current Decision. Merchant PII stays in Supabase eu-west-1; Mixpanel only ever sees rep UUIDs + event names + non-PII properties. The debug-mode `assert` keeps the line durable even if future call sites drift.
+- **Facade over direct SDK calls everywhere** — no `Mixpanel.instance.track(...)` in feature code. This is load-bearing for future vendor swaps and for the PII-scrub guarantee.
+- **`forgot_password_screen` deliberately not instrumented** — stateless screen, would need a stateful wrapper for a clean initState firing, and the signal (how often reps hit "forgot password") is already implicit in admin password-reset frequency which the Dashboard captures.
+- **Skipped Firebase Analytics** despite its generous free tier — adds ~3–5 MB (Google Play Services pull), which would worsen the existing 52 MB APK size (P2-8) and nudge us further over WhatsApp's 50 MB cap. Mixpanel SDK is ~1–2 MB.
+**Backlog impact:**
+- **P1-13 added (DONE 2026-04-17)**: Mixpanel integration with event list. This is infrastructure for pilot learning, not a pilot-blocking feature — hence P1 not P0.
+- No status changes to existing rows.
+- **New Current Decisions entry** documents the vendor choice + PII-scrub rule + facade pattern.
+**Blockers now:** 0 active.
+**Files changed:**
+- `pubspec.yaml` (+1 dep)
+- `lib/services/analytics.dart` (new, ~95 lines)
+- `lib/main.dart` (+6 lines — init + app_started)
+- `lib/providers/auth_provider.dart` (+ ~20 lines of `Analytics.track` / `identify` / `reset`)
+- `lib/providers/merchant_provider.dart` (+ ~30 lines across `toggleProduct` + `submit`)
+- `lib/providers/merchant_list_provider.dart` (+ `nid_revealed` / `nid_reveal_failed`)
+- `lib/screens/lead/new_lead_screen.dart` (+ `lead_form_opened` / `lead_validation_failed`)
+- `lib/screens/merchant/merchant_list_screen.dart` (+ `merchant_list_viewed`)
+- `lib/screens/merchant/merchant_profile_screen.dart` (+ `merchant_profile_viewed`)
+- `.github/workflows/build-pilot-apk.yml` (+ `MIXPANEL_TOKEN` env + `--dart-define`)
+- `CLAUDE.md` (Current Decisions entry, P1-13 row, this session entry, rotation)
+- `CLAUDE.archive.md` (rotated 2026-04-16 late-night entry)
+**Pending user action:**
+1. Create Mixpanel project (free tier) → grab the project token (32-char hex). Region: pick US (default) — we're not routing PII here.
+2. Add `MIXPANEL_TOKEN` to GitHub repo Settings → Secrets and variables → Actions. Build will pick it up on the next `workflow_dispatch`.
+3. Optionally run `flutter run --dart-define=MIXPANEL_TOKEN=<token>` locally to smoke-test events land in Mixpanel before the next pilot APK cut.
+4. In Mixpanel, create one saved cohort ("Pilot reps") and one funnel report (`lead_form_opened` → `lead_submit_attempted` → `lead_submit_succeeded`) so the most important signal is one click away when pilot traffic starts.
+**Next Session:**
+1. **Regression automation** — stand up Patrol against the pilot APK. Golden-path test script (phone → password → change-password → new lead per product variant → merchant list → profile → NID reveal → `audit_log` assert via Supabase client). Wire into `.github/workflows/` as a gate before the signed-APK step; Linux runner + headless emulator is fiddly, recommend a macOS runner.
+2. **Pentest automation** — highest risk-reduction-per-hour is RLS fuzzing + MobSF in CI. Script PostgREST calls with varied JWTs to prove RLS rejects cross-rep reads. Add MobSF docker step to `build-pilot-apk.yml` after the existing `apktool d` + `grep` secret scan; hard-fail on High/Critical.
+3. **Two CodeRabbit follow-ups from 2026-04-17 afternoon session still unopened** — Security Definer hardening (`SET search_path` + internal `set_claim` access control) and RTL fix in `forgot_password_screen.dart:19`. File before pilot traffic accumulates.
+
+### Session: 2026-04-17 (evening) — First live prod smoke test + service-role keys migrated to Bitwarden
+**Duration:** ~2h (spread across a lot of interactive paste-back iterations)
+**Focus:** Prove the signed pilot APK works against prod end-to-end, provision the first real pilot rep, and close the service-role-key half of P2-7 (move keys out of `.env.admin` plaintext into Bitwarden).
+**Completed:**
+- **APK onto emulator**: `gh run download 24584445426 --repo marwanhamedahmedmaher-sudo/Jawaker` → `aman-v1.0.0-pilot.apk` (52 MB) into [build/pilot-apk/](build/pilot-apk/). Uninstall-reinstall dance needed on the `android_emulator` AVD because the prior debug-signed install collided on signature (keystore was regenerated 2026-04-17 afternoon). App boots, Flutter Impeller GL backend initializes, RTL Arabic renders, phone-entry screen matches the Figma reference.
+- **Bitwarden CLI migration (P2-7 half-close)**:
+  - Installed `bw` via `winget install --id Bitwarden.CLI` (version 2026.3.0). Winget modified Windows PATH but existing Git Bash didn't inherit it — worked around by hardcoding `$BW_CLI` to the full winget install path in `.env.admin`.
+  - **Leaked-session incident**: on first `bw login` Marwan pasted the full stdout back into chat. Bitwarden's "example" output after login embeds the **real** `BW_SESSION` token, not a placeholder. Killed the session with `bw logout` + re-login before any secret touched the wire. Updated working rules: master password / session tokens / service-role keys stay on Marwan's keyboard, transcript only carries non-secret outputs (UUIDs, yes/no, status).
+  - Rotated **both** dev and prod service-role keys in the Supabase Dashboard (Settings → API → Generate new secret key). Stored the fresh values in Bitwarden items `Aman Supabase Dev service_role` and `Aman Supabase Prod service_role`.
+  - Rewrote `.env.admin`: LF-normalized, uses `export BW_CLI="/c/Users/marwan.haahmed/AppData/Local/Microsoft/WinGet/Packages/Bitwarden.CLI_Microsoft.Winget.Source_8wekyb3d8bbwe/bw.exe"` and `export SUPABASE_SERVICE_ROLE_KEY="$("$BW_CLI" get password 'Aman Supabase Prod service_role')"`. Kept a commented DEV block so target-swap is a two-line toggle. Active target is now prod.
+- **First real pilot rep provisioned via prod** — `scripts/provision_rep.sh --phone +201128835459 --name "marwan hamed" --employee-id 121264 --role sales_rep`. Returned auth user UUID `036b62f1-4413-4ec1-949f-d1da3f29f9cd`. Verified via MCP SQL: `auth.users.phone_confirmed_at` set (Admin-API pre-confirm path worked), `public.users` has role + `must_change_password=true`, `set_claim('role','sales_rep')` returned void (success).
+- **Prod smoke test end-to-end (evidence captured via MCP SQL against `yflwudkmhqwoscipscbb`)**:
+  - Login blocker surfaced: app returned `"Phone logins are disabled"` on first attempt. The Auth → Providers → Phone toggle was actually OFF on prod at session start (the 2026-04-16 "confirmed by Marwan" note in Current Decisions references a different settings page than the one gating phone-as-username login). Marwan toggled it ON + saved. Login went through on the next tap with no re-type needed.
+  - Change-password screen fired correctly: `auth.users.last_sign_in_at` at 23:25:24 (first sign-in with temp), `updated_at` at 23:26:04 (~40s later — password rotation via `updateUser()`), `public.users.must_change_password` flipped to `false` at the same tx.
+  - Home dashboard rendered RTL-native with "أهلا marwan!" welcome + Cairo region + "0 merchants this week" card.
+  - Lead submission: merchant row `79dfa87f-2dfc-4985-b445-fb483b8b25c3` with phone E.164-normalized to `+201128835458` (trigger fired), NID hashed to `3eaa47ad3d2fbb421cad9a6bafdd588edc9cdb3062ace2de5c422ad74e0c4286`, `products = ["Microfinance","BP POS","Acceptance POS"]`, `microfinance_amount = 100000`, `created_by` = rep UUID, `status = lead`.
+  - Audit capture: `audit_log` row `1974a66d-8392-47c3-bdd6-77322f22d087`, `action = INSERT`, `table_name = merchants`, `actor_id` = rep UUID, `record_id` matches the merchant row, same timestamp as the merchant insert (confirms the AFTER trigger is inside the same tx — P0-14 wired correctly).
+- **Dashboard UI "bug" turned out to be a filter** (non-issue): the Authentication → Users search was set to "Email address", which correctly excludes phone-only users. Not a Dashboard defect. P2-9 closed as NOT-A-BUG.
+**Decisions:**
+- **Per-user instruction, NOT correcting the 2026-04-16 "auth settings confirmed (phone ON)" note** even though phone provider was actually OFF this session. Session log carries the factual event; Current Decisions / P0-1 confirmation stay as-is.
+- **Service-role key resolution pattern locked in** — `$BW_CLI` hardcoded path + `bw get password` at source-time. Avoids PATH propagation issues and keeps the pattern usable from PowerShell, Git Bash, and any future WSL shell. Documented inline in `.env.admin` header.
+- **Both keys rotated at migration time**, not just prod — the dev key sat in plaintext for days, and the prod one would have followed suit the moment it touched `.env.admin`. Cheaper to roll both now than to reason about exposure windows later.
+- **`bw login` output treated as secret** going forward — the "example" block it prints embeds the real session token.
+**Backlog impact:**
+- **P0-1 note extended**: "First real pilot rep provisioned + full prod smoke test green 2026-04-17 (evening)".
+- **P2-7 → IN_PROGRESS**: service-role key half closed; keystore password half still TODO.
+- **P2-8 added**: APK size trim — 52 MB currently, over WhatsApp's 50 MB attachment cap. Options: R8 `shrinkResources`, `--split-per-abi`, or drop unused locales/icon densities.
+- **P2-9 added and immediately closed** as NOT-A-BUG: Auth → Users "empty" state was an email-filter artifact, not a Dashboard defect. No runbook change needed.
+- **Current Decisions — "Provisioning model — Option C1"** rewritten to reflect Bitwarden resolution pattern.
+**Blockers now:** 0 active.
+**Files changed:**
+- `.env.admin` (plaintext JWT removed, `$BW_CLI` + `bw get password` wired in, prod target active, dev target commented).
+- `CLAUDE.md` (Current Decisions "Provisioning model" update, P0-1 note extended, P2-7 → IN_PROGRESS + half-done note, P2-8 + P2-9 added, this entry, rotation).
+- `CLAUDE.archive.md` (rotated 2026-04-16 "night" keystore entry).
+- [build/pilot-apk/aman-v1.0.0-pilot.apk](build/pilot-apk/aman-v1.0.0-pilot.apk) (new, gitignored — downloaded artifact).
+**Next Session:**
+1. **Regression automation** — stand up Patrol against the pilot APK. Golden-path test script (phone → password → change-password → new lead per product variant → merchant list → profile → NID reveal → `audit_log` assert via Supabase client). Wire into `.github/workflows/` as a gate before the signed-APK step; Linux runner + headless emulator is fiddly, recommend a macOS runner.
+2. **Pentest automation** — highest risk-reduction-per-hour is RLS fuzzing + MobSF in CI. Script PostgREST calls with varied JWTs to prove RLS rejects cross-rep reads. Add MobSF docker step to `build-pilot-apk.yml` after the existing `apktool d` + `grep` secret scan; hard-fail on High/Critical.
+3. **Two CodeRabbit follow-ups from 2026-04-17 afternoon session still unopened** — Security Definer hardening (`SET search_path` + internal `set_claim` access control) and RTL fix in `forgot_password_screen.dart:19`. File before pilot traffic accumulates.
+
 ### Session: 2026-04-17 (afternoon) — Wave 3 live: signed pilot APK via GitHub Actions; keystore regenerated after lost password
 **Duration:** ~3h (spread across iterations)
 **Focus:** Get a signed, distributable pilot APK end-to-end. Pivot from local Windows build to GitHub Actions CI after hitting a corp-laptop environmental blocker, survive the CodeRabbit pre-merge review gauntlet, recover from a forgotten keystore password mid-flight, land a green build.
