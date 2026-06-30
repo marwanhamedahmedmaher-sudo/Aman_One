@@ -44,6 +44,8 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
   final Set<VisitProduct> _products = {};
   final _merchantCtrl = TextEditingController();
   final _businessCtrl = TextEditingController();
+  // mission 2: «هل تم التقديم؟»
+  bool? _applicationSubmitted;
   // mission 3
   String? _branchId;
   String? _branchName;
@@ -103,13 +105,16 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
                   const SizedBox(height: 16),
                 ],
 
-                _label('عدد العملاء الذين تم التواصل معهم'),
-                _numberField(_contactedCtrl, 'مثال: 12'),
-                const SizedBox(height: 16),
-
-                _label('عدد العملاء الذين تم تسجيلهم'),
-                _numberField(_onboardedCtrl, 'مثال: 3'),
-                const SizedBox(height: 16),
+                // Counts are M1/M3 only — M2 asks «هل تم التقديم؟» instead
+                // (rendered inside _merchantFields).
+                if (!_isMerchants) ...[
+                  _label('عدد العملاء الذين تم التواصل معهم'),
+                  _numberField(_contactedCtrl, 'مثال: 12'),
+                  const SizedBox(height: 16),
+                  _label('عدد العملاء الذين تم تسجيلهم'),
+                  _numberField(_onboardedCtrl, 'مثال: 3'),
+                  const SizedBox(height: 16),
+                ],
 
                 _label('صورة المكان'),
                 _photoPicker(),
@@ -119,13 +124,13 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
                 _gpsRow(),
                 const SizedBox(height: 16),
 
-                _label('ملاحظات (اختياري)'),
+                _label('تفاصيل الزيارة'),
                 TextFormField(
                   controller: _notesCtrl,
                   maxLines: 3,
                   textAlign: TextAlign.right,
                   style: AppTheme.inputText,
-                  decoration: AppTheme.inputDecoration(hintText: 'أي ملاحظات إضافية'),
+                  decoration: AppTheme.inputDecoration(hintText: 'تفاصيل الزيارة'),
                 ),
                 const SizedBox(height: 24),
 
@@ -155,29 +160,27 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
 
   List<Widget> _govFields() => [
         _label('نوع المنشأة'),
-        Row(
+        // Single-select: each chip binds to the one _placeKind value.
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
           children: PlaceKind.values.map((k) {
             final selected = _placeKind == k;
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsetsDirectional.only(end: 8),
-                child: ChoiceChip(
-                  label: Text(k.labelAr),
-                  selected: selected,
-                  onSelected: (_) => setState(() => _placeKind = k),
-                  selectedColor: AppColors.primaryLight,
-                  labelStyle: AppTheme.bodyMedium.copyWith(
-                    color: selected ? AppColors.primary : AppColors.textMedium,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                  ),
-                ),
+            return ChoiceChip(
+              label: Text(k.labelAr),
+              selected: selected,
+              onSelected: (_) => setState(() => _placeKind = k),
+              selectedColor: AppColors.primaryLight,
+              labelStyle: AppTheme.bodyMedium.copyWith(
+                color: selected ? AppColors.primary : AppColors.textMedium,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
               ),
             );
           }).toList(),
         ),
         const SizedBox(height: 16),
         _label('اسم المنشأة'),
-        _textField(_placeNameCtrl, 'اسم المدرسة أو المؤسسة'),
+        _textField(_placeNameCtrl, 'اسم المدرسة أو المؤسسة أو المستشفى'),
         const SizedBox(height: 16),
       ];
 
@@ -213,7 +216,30 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
         _label('اسم النشاط التجاري'),
         _textField(_businessCtrl, 'اسم المحل أو النشاط'),
         const SizedBox(height: 16),
+        _label('هل تم التقديم؟'),
+        Row(
+          children: [
+            _yesNoChip('نعم', true),
+            const SizedBox(width: 8),
+            _yesNoChip('لا', false),
+          ],
+        ),
+        const SizedBox(height: 16),
       ];
+
+  Widget _yesNoChip(String label, bool value) {
+    final selected = _applicationSubmitted == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => setState(() => _applicationSubmitted = value),
+      selectedColor: AppColors.primaryLight,
+      labelStyle: AppTheme.bodyMedium.copyWith(
+        color: selected ? AppColors.primary : AppColors.textMedium,
+        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+      ),
+    );
+  }
 
   List<Widget> _branchFields() => [
         _label('الفرع'),
@@ -500,13 +526,17 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
     if (_isBranch && (_branchId == null || _branchId!.isEmpty)) {
       return _snack('برجاء اختيار الفرع', isError: true);
     }
+    if (_isMerchants && _applicationSubmitted == null) {
+      return _snack('برجاء تحديد ما إذا تم التقديم', isError: true);
+    }
     if (_needsGovernorate && _governorateId == null) {
       return _snack('برجاء اختيار المحافظة', isError: true);
     }
 
-    final contacted = int.parse(_contactedCtrl.text.trim());
-    final onboarded = int.parse(_onboardedCtrl.text.trim());
-    if (onboarded > contacted) {
+    // M2 doesn't collect counts (asks «هل تم التقديم؟» instead) — store 0/0.
+    final contacted = _isMerchants ? 0 : int.parse(_contactedCtrl.text.trim());
+    final onboarded = _isMerchants ? 0 : int.parse(_onboardedCtrl.text.trim());
+    if (!_isMerchants && onboarded > contacted) {
       return _snack('عدد المسجلين لا يمكن أن يتجاوز عدد المتواصل معهم',
           isError: true);
     }
@@ -562,6 +592,7 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
       merchantName: _isMerchants ? _merchantCtrl.text.trim() : null,
       businessName: _isMerchants ? _businessCtrl.text.trim() : null,
       branchId: _isBranch ? _branchId : null,
+      applicationSubmitted: _isMerchants ? _applicationSubmitted : null,
       templateSlug: _mission.slug,
     );
 

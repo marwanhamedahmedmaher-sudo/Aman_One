@@ -78,6 +78,7 @@ Deno.serve(async (req: Request) => {
     .select(
       'id, rep_id, recorded_at, in_window, photo_path, template_slug, ' +
         'place_name, merchant_name, business_name, contacted_count, onboarded_count, ' +
+        'application_submitted, ' +
         'governorates(name_ar), aman_branches(name_ar), field_tasks!inner(title, task_date)',
     )
     .eq('field_tasks.task_date', date)
@@ -112,6 +113,7 @@ Deno.serve(async (req: Request) => {
 
   const rows = visits.map((v) => {
     const u = userMap.get(v.rep_id);
+    const isM2 = v.template_slug === 'merchants_acceptance_finance';
     return {
       rep_name: u?.name ?? '',
       employee_id: u?.employee_id ?? '',
@@ -119,8 +121,12 @@ Deno.serve(async (req: Request) => {
       date,
       entity: entity(v as Record<string, unknown>),
       governorate: (v.governorates as { name_ar?: string } | null)?.name_ar ?? '',
-      contacted: v.contacted_count,
-      onboarded: v.onboarded_count,
+      submitted: v.application_submitted == null
+        ? ''
+        : (v.application_submitted ? 'نعم' : 'لا'),
+      // M2 doesn't collect counts (asks «هل تم التقديم؟» instead).
+      contacted: isM2 ? '' : v.contacted_count,
+      onboarded: isM2 ? '' : v.onboarded_count,
       recorded_at: v.recorded_at,
       in_window: v.in_window,
       photo_url: urlByPath.get(v.photo_path) ?? '',
@@ -130,13 +136,13 @@ Deno.serve(async (req: Request) => {
   if (format === 'csv') {
     const headers = [
       'اسم المندوب', 'رقم الموظف', 'المهمة', 'التاريخ', 'الجهة', 'المحافظة',
-      'عدد المتواصل معهم', 'عدد المسجلين', 'وقت الزيارة', 'الالتزام', 'رابط الصورة',
+      'تم التقديم', 'عدد المتواصل معهم', 'عدد المسجلين', 'وقت الزيارة', 'الالتزام', 'رابط الصورة',
     ];
     const lines = [headers.join(',')];
     for (const r of rows) {
       lines.push([
         r.rep_name, r.employee_id, r.task, r.date, r.entity, r.governorate,
-        r.contacted, r.onboarded, r.recorded_at,
+        r.submitted, r.contacted, r.onboarded, r.recorded_at,
         r.in_window ? 'في الموعد' : 'خارج الموعد', r.photo_url,
       ].map(csvCell).join(','));
     }

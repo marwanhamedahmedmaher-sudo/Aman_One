@@ -83,23 +83,24 @@ class _TaskVisitsScreenState extends State<TaskVisitsScreen> {
         title: Text(widget.task.title, style: AppTheme.heading3),
         backgroundColor: AppColors.white,
       ),
+      // Floating "add visit" icon — sits just above the bottom «إنهاء المهمة»
+      // bar (which lives in bottomNavigationBar), so the two never overlap.
       floatingActionButton: (done || _capReached)
           ? null
-          : FloatingActionButton.extended(
+          : FloatingActionButton(
               onPressed: _addVisit,
               backgroundColor: AppColors.primary,
-              icon: const Icon(Icons.add_location_alt_outlined,
-                  color: AppColors.textWhite),
-              label: Text('أدخل زيارة',
-                  style: AppTheme.bodyMedium.copyWith(
-                      color: AppColors.textWhite, fontWeight: FontWeight.w600)),
+              foregroundColor: AppColors.textWhite,
+              tooltip: 'أدخل زيارة',
+              child: const Icon(Icons.add_location_alt_outlined),
             ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      bottomNavigationBar: done ? null : _completeBar(),
       body: SafeArea(
         child: Column(
           children: [
             _windowBanner(),
             Expanded(child: _buildList()),
-            if (!done) _completeBar(),
           ],
         ),
       ),
@@ -181,21 +182,30 @@ class _TaskVisitsScreenState extends State<TaskVisitsScreen> {
   Widget _completeBar() {
     final canComplete = _visits.isNotEmpty && !_completing;
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      decoration: const BoxDecoration(color: AppColors.white),
-      child: SizedBox(
-        width: double.infinity,
-        child: ElevatedButton(
-          onPressed: canComplete ? _completeTask : null,
-          style: AppTheme.primaryButton(),
-          child: _completing
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: AppColors.textWhite),
-                )
-              : Text('إنهاء المهمة', style: AppTheme.buttonText),
+      decoration: const BoxDecoration(
+        color: AppColors.white,
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      child: SafeArea(
+        top: false,
+        // Extra top padding leaves room for the floating "add visit" icon.
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: canComplete ? _completeTask : null,
+              style: AppTheme.primaryButton(),
+              child: _completing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.textWhite),
+                    )
+                  : Text('إنهاء المهمة', style: AppTheme.buttonText),
+            ),
+          ),
         ),
       ),
     );
@@ -260,8 +270,13 @@ class _VisitCard extends StatelessWidget {
                 _meta(Icons.location_city_outlined, visit.governorateName!),
               if (visit.products.isNotEmpty)
                 _meta(Icons.sell_outlined, _productsLabel(visit.products)),
-              _meta(Icons.people_outline,
-                  'تواصل ${visit.contactedCount} • تسجيل ${visit.onboardedCount}'),
+              // M2 shows «تم التقديم» instead of contacted/onboarded counts.
+              if (visit.templateSlug == 'merchants_acceptance_finance')
+                _meta(Icons.assignment_turned_in_outlined,
+                    'تم التقديم: ${visit.applicationSubmitted == true ? 'نعم' : 'لا'}')
+              else
+                _meta(Icons.people_outline,
+                    'تواصل ${visit.contactedCount} • تسجيل ${visit.onboardedCount}'),
               _meta(Icons.schedule, _t(visit.recordedAt)),
             ],
           ),

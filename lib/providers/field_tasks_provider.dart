@@ -171,6 +171,7 @@ class FieldTasksProvider extends ChangeNotifier {
     String? merchantName,
     String? businessName,
     String? branchId,
+    bool? applicationSubmitted,
     String? templateSlug, // for analytics only
   }) async {
     if (_busy.contains(taskId)) {
@@ -198,6 +199,7 @@ class FieldTasksProvider extends ChangeNotifier {
         'p_merchant_name': merchantName,
         'p_business_name': businessName,
         'p_branch_id': branchId,
+        'p_application_submitted': applicationSubmitted,
       });
 
       // RPC returns TABLE(visit_id, in_window) -> a single-row list.
@@ -222,6 +224,7 @@ class FieldTasksProvider extends ChangeNotifier {
         'governorate_id': governorateId,
         'contacted_count': contactedCount,
         'onboarded_count': onboardedCount,
+        'application_submitted': applicationSubmitted,
         'has_photo': photoPath.isNotEmpty,
       });
       return VisitOutcome(success: true, inWindow: inWindow);

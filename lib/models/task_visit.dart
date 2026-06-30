@@ -16,10 +16,11 @@ enum VisitMission {
   }
 }
 
-/// Mission-1 place kind.
+/// Mission-1 place kind (single-select).
 enum PlaceKind {
   school('school', 'مدرسة'),
-  govInstitution('gov_institution', 'مؤسسة حكومية');
+  govInstitution('gov_institution', 'مؤسسة حكومية'),
+  hospital('hospital', 'مستشفى');
 
   final String value;
   final String labelAr;
@@ -62,6 +63,8 @@ class TaskVisit {
   // mission 3
   final String? branchId;
   final String? branchName; // joined, optional
+  // mission 2: «هل تم التقديم؟»
+  final bool? applicationSubmitted;
 
   const TaskVisit({
     required this.id,
@@ -85,6 +88,7 @@ class TaskVisit {
     this.businessName,
     this.branchId,
     this.branchName,
+    this.applicationSubmitted,
   });
 
   /// A short headline for the visit list — the institution/merchant/branch name.
@@ -121,6 +125,7 @@ class TaskVisit {
       businessName: json['business_name'] as String?,
       branchId: json['branch_id'] as String?,
       branchName: branch?['name_ar'] as String?,
+      applicationSubmitted: json['application_submitted'] as bool?,
     );
   }
 }
