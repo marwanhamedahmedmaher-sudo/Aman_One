@@ -45,7 +45,7 @@ class AuthHeader extends StatelessWidget {
             const SizedBox(height: 12),
             // App name
             Text(
-              'أمان',
+              'أمان وان',
               style: AppTheme.heading1.copyWith(fontSize: 24),
             ),
             const SizedBox(height: 4),

@@ -3,6 +3,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'providers/auth_provider.dart';
+import 'providers/field_tasks_provider.dart';
+import 'providers/lookups_provider.dart';
 import 'providers/merchant_list_provider.dart';
 import 'providers/tasks_provider.dart';
 import 'screens/auth/phone_entry_screen.dart';
@@ -38,11 +40,13 @@ class AmanApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => MerchantListProvider()),
         ChangeNotifierProvider(create: (_) => TasksProvider()),
+        ChangeNotifierProvider(create: (_) => FieldTasksProvider()),
+        ChangeNotifierProvider(create: (_) => LookupsProvider()),
       ],
       child: Consumer<AuthProvider>(
         builder: (context, auth, _) {
           return MaterialApp(
-            title: 'Jawaker Aman',
+            title: 'Aman One',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             locale: const Locale('ar', 'EG'),

@@ -1,8 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <!-- Foreground-only location for per-task GPS check-ins. NO background
+         location permission — the rep captures a fix only when they tap the
+         "submit location" button while the app is open. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- Camera for the required "photo of the place" on each field visit.
+         Gallery picking on Android 13+ uses the system photo picker (no
+         storage permission needed). -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     <application
-        android:label="Jawaker Aman"
+        android:label="Aman One"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

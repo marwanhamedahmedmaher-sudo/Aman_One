@@ -16,6 +16,15 @@ class MerchantListProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
+  /// Drop the in-memory merchant list. Call on logout so the previous rep's
+  /// merchants don't linger on screen before the next rep's fetch completes.
+  void reset() {
+    _merchants = [];
+    _weeklyCount = 0;
+    _error = null;
+    notifyListeners();
+  }
+
   /// Fetch all merchants created by the current rep (RLS-enforced).
   /// Excludes national_id — plaintext NID only via reveal RPC.
   Future<void> fetchMerchants() async {

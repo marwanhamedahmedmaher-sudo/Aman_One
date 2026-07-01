@@ -89,8 +89,13 @@ class Analytics {
   // `phone` / `national_id` / `nid_hash` / `merchant_name` / `full_name`
   // intentionally stay as substring matches — we want to catch `rep_phone`,
   // `merchant_national_id`, etc., because those genuinely carry PII.
+  // `lat` / `lng` / `location` are blocked too: field-visit events carry only
+  // coarse, non-identifying props (template_slug, in_window, counts). A rep's
+  // precise coordinates are location PII and must never reach the analytics
+  // vendor — `\blat\b` / `\blng\b` use word boundaries so keys like
+  // `template_slug` or `lng_*` flags don't false-positive on the substring.
   static final _forbiddenKeyPattern = RegExp(
-    r'national_id|nid_hash|\bnid\b|phone|\bpassword\b|merchant_name|full_name',
+    r'national_id|nid_hash|\bnid\b|phone|\bpassword\b|merchant_name|full_name|business_name|place_name|\blat\b|\blng\b|location',
     caseSensitive: false,
   );
 
