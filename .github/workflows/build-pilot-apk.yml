@@ -13,6 +13,14 @@ on:
         required: false
         default: ''
 
+# Serialize heavyweight builds per ref: a Flutter build + APK decompile + MobSF
+# scan runs several minutes. Overlapping manual dispatches on the same ref waste
+# runner minutes (and could collide on the MobSF container port) — cancel the
+# in-flight run when a newer one starts.
+concurrency:
+  group: build-pilot-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build signed release APK
@@ -30,12 +38,19 @@ jobs:
 
       - name: Resolve version from pubspec
         # Single source of truth for the version: pubspec.yaml `version: X.Y.Z+B`.
-        #   APP_VERSION  = X.Y.Z  (marketing version → --build-name, artifact name)
+        #   APP_VERSION  = X.Y.Z  (marketing version → --build-name)
         #   BUILD_NUMBER = github.run_number (monotonic versionCode, traceable to
         #                  the exact Actions run; overrides pubspec's +B)
-        #   VERSION_SAFE = APP_VERSION[-label] used for the APK/artifact filename
+        #   VERSION_SAFE = APP_VERSION[-label]+BUILD_NUMBER — the APK/artifact
+        #                  filename. Includes the build number so two builds off
+        #                  the same pubspec version stay distinguishable.
         # Because the filename is DERIVED from the committed version, a build can
         # no longer be mislabeled by whatever was typed into the dispatch box.
+        # inputs.label / github.run_number are passed via env (NOT inline ${{ }}
+        # in the script body) to avoid template/shell injection into the run block.
+        env:
+          LABEL_RAW: ${{ inputs.label }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           RAW=$(grep -E '^version:' pubspec.yaml | head -1 | sed 's/version:[[:space:]]*//')
           APP_VERSION="${RAW%%+*}"
@@ -43,13 +58,13 @@ jobs:
             echo "::error::could not parse version from pubspec.yaml (line: '$RAW')"
             exit 1
           fi
-          LABEL_SAFE=$(printf '%s' "${{ inputs.label }}" | tr -cd '[:alnum:]._-')
+          BUILD_NUMBER=$(printf '%s' "$RUN_NUMBER" | tr -cd '[:digit:]')
+          LABEL_SAFE=$(printf '%s' "$LABEL_RAW" | tr -cd '[:alnum:]._-')
           if [ -n "$LABEL_SAFE" ]; then
-            VERSION_SAFE="${APP_VERSION}-${LABEL_SAFE}"
+            VERSION_SAFE="${APP_VERSION}-${LABEL_SAFE}+${BUILD_NUMBER}"
           else
-            VERSION_SAFE="$APP_VERSION"
+            VERSION_SAFE="${APP_VERSION}+${BUILD_NUMBER}"
           fi
-          BUILD_NUMBER="${{ github.run_number }}"
           echo "APP_VERSION=$APP_VERSION"   >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "VERSION_SAFE=$VERSION_SAFE" >> "$GITHUB_ENV"
