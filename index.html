@@ -18,6 +18,8 @@
     border-radius: 10px; font-size: 15px; }
   .row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
   .row input { width: auto; height: auto; }
+  .dates { display: flex; gap: 12px; }
+  .dates > div { flex: 1; }
   button { width: 100%; height: 48px; margin-top: 20px; background: var(--teal); color: #fff;
     border: 0; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: .6; cursor: default; }
@@ -28,19 +30,23 @@
 <body>
   <div class="card">
     <h1>تصدير زيارات أمان</h1>
-    <p class="sub">سجّل الدخول بحساب المشرف، اختر التاريخ، ثم نزّل ملف Excel — الصور مدمجة داخل الجدول.</p>
+    <p class="sub">سجّل الدخول بحساب المشرف، اختر نطاق التاريخ، ثم نزّل ملف Excel — الصور مدمجة داخل الجدول.</p>
 
     <label>رقم الموبايل (المشرف)</label>
-    <input id="phone" type="text" inputmode="tel" placeholder="+201234567890" />
+    <input id="phone" type="text" inputmode="tel" placeholder="01234567890 أو +201234567890" />
 
     <label>كلمة المرور</label>
     <input id="password" type="password" placeholder="••••••••" />
 
-    <label>التاريخ</label>
-    <input id="date" type="date" />
-    <div class="row">
-      <input id="all" type="checkbox" />
-      <label for="all" style="margin:0;">كل التواريخ (تصدير كل الزيارات)</label>
+    <div class="dates">
+      <div>
+        <label>من تاريخ</label>
+        <input id="from" type="date" />
+      </div>
+      <div>
+        <label>إلى تاريخ</label>
+        <input id="to" type="date" />
+      </div>
     </div>
 
     <button id="go">تنزيل ملف Excel</button>
@@ -52,13 +58,30 @@
   const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmbHd1ZGttaHF3b3NjaXBzY2JiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNzM4NTMsImV4cCI6MjA5MTk0OTg1M30.141uW5uriJUKDNJnQ6RYyo2dasWVQy4FUbqyKUBZ48U';
 
   const $ = (id) => document.getElementById(id);
-  $('date').value = new Date(Date.now() + 2*3600*1000).toISOString().slice(0,10); // Cairo today
+  const cairoToday = new Date(Date.now() + 2*3600*1000).toISOString().slice(0,10); // Cairo today
+  $('from').value = cairoToday;
+  $('to').value = cairoToday;
   const status = (msg, cls='') => { const s = $('status'); s.textContent = msg; s.className = cls; };
 
+  // Accept the phone with or without the +20 / leading 0 and return E.164 (+20…).
+  const normalizePhone = (raw) => {
+    let p = (raw || '').replace(/[\s\-()]/g, '');
+    if (!p) return '';
+    if (p.startsWith('+')) return p;                    // already E.164
+    p = p.replace(/^00/, '');                           // 0020… → 20…
+    if (p.startsWith('20')) return '+' + p;             // 201… → +201…
+    if (p.startsWith('0'))  return '+20' + p.slice(1);  // 011… → +2011…
+    return '+20' + p;                                   // bare national number
+  };
+
   $('go').addEventListener('click', async () => {
-    const phone = $('phone').value.trim();
+    const phone = normalizePhone($('phone').value);
     const password = $('password').value;
+    const from = $('from').value;
+    const to = $('to').value;
     if (!phone || !password) return status('أدخل رقم الموبايل وكلمة المرور.', 'err');
+    if (!from || !to) return status('اختر نطاق التاريخ (من / إلى).', 'err');
+    if (from > to) return status('«من تاريخ» يجب أن يكون قبل «إلى تاريخ».', 'err');
 
     $('go').disabled = true;
     try {
@@ -72,8 +95,7 @@
       if (!auth.ok || !aj.access_token) throw new Error(aj.error_description || aj.msg || 'فشل تسجيل الدخول');
 
       status('جارٍ تجهيز ملف Excel (قد يستغرق لحظات مع الصور)…');
-      const all = $('all').checked;
-      const q = all ? '' : `?date=${$('date').value}`;
+      const q = `?from=${from}&to=${to}`;
       const res = await fetch(`${SUPABASE_URL}/functions/v1/export-visits-xlsx${q}`, {
         headers: { 'apikey': ANON, 'Authorization': `Bearer ${aj.access_token}` },
       });
@@ -84,7 +106,7 @@
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `aman-visits-${all ? 'all' : $('date').value}.xlsx`;
+      a.download = `aman-visits-${from}_${to}.xlsx`;
       a.click();
       URL.revokeObjectURL(a.href);
       status('تم التنزيل ✓', 'ok');
