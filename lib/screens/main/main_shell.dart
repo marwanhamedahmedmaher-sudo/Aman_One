@@ -94,6 +94,10 @@ class _MainShellState extends State<MainShell> {
             const SizedBox(height: 4),
             Text(
               label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.visible,
+              textAlign: TextAlign.center,
               style: AppTheme.bodySmall.copyWith(
                 fontSize: 11,
                 color: isActive ? AppColors.tabActive : AppColors.tabInactive,
