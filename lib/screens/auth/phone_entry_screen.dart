@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/auth_header.dart';
+import '../../widgets/responsive_container.dart';
 import 'forgot_password_screen.dart';
 import 'password_screen.dart';
 
@@ -23,11 +24,35 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     super.dispose();
   }
 
-  void _handleContinue() {
-    final cleaned = _phoneController.text.trim().replaceAll(RegExp(r'\s'), '');
+  /// Normalizes a phone number to the internal 11-digit local form
+  /// (`01XXXXXXXXX`), accepting an optional Egypt country code entered as
+  /// `+20`, `0020`, `20`, `+2`, `+02`, etc. Returns null if the number is not
+  /// a valid Egyptian mobile number.
+  String? _normalizePhone(String raw) {
+    // Keep digits only (drops '+', spaces, dashes, and any leading '00').
+    var digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.startsWith('00')) {
+      digits = digits.substring(2);
+    }
+    // Strip the Egypt country code (20) if present.
+    if (digits.startsWith('20') && digits.length == 12) {
+      digits = '0${digits.substring(2)}';
+    } else if (digits.startsWith('1') && digits.length == 10) {
+      // National number without the leading 0.
+      digits = '0$digits';
+    }
 
-    // Validate: 11 digits starting with 01
-    if (cleaned.length != 11 || !cleaned.startsWith('01')) {
+    // Valid Egyptian mobile: 11 digits, starts with 01.
+    if (digits.length == 11 && digits.startsWith('01')) {
+      return digits;
+    }
+    return null;
+  }
+
+  void _handleContinue() {
+    final normalized = _normalizePhone(_phoneController.text);
+
+    if (normalized == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('\u064a\u0631\u062c\u0649 \u0625\u062f\u062e\u0627\u0644 \u0631\u0642\u0645 \u0645\u0648\u0628\u0627\u064a\u0644 \u0635\u062d\u064a\u062d \u0645\u0646 11 \u0631\u0642\u0645'),
@@ -39,7 +64,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     setState(() => _loading = true);
 
     final auth = context.read<AuthProvider>();
-    auth.setPhone(cleaned);
+    auth.setPhone(normalized);
 
     // Small delay for visual feedback, then navigate to password
     Future.delayed(const Duration(milliseconds: 300), () {
@@ -57,7 +82,8 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SingleChildScrollView(
-        child: Column(
+        child: ResponsiveContainer(
+          child: Column(
           children: [
             const AuthHeader(height: 280),
             Transform.translate(
@@ -96,11 +122,11 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                         child: TextField(
                           controller: _phoneController,
                           keyboardType: TextInputType.phone,
-                          maxLength: 11,
+                          maxLength: 16,
                           textAlign: TextAlign.right,
                           style: AppTheme.inputText,
                           decoration: AppTheme.inputDecoration(
-                            hintText: '01XXXXXXXXX',
+                            hintText: '01XXXXXXXXX أو 20+',
                           ).copyWith(counterText: ''),
                         ),
                       ),
@@ -145,6 +171,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );
