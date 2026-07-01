@@ -33,6 +33,9 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     var digits = raw.replaceAll(RegExp(r'\D'), '');
     if (digits.startsWith('00')) {
       digits = digits.substring(2);
+    } else if (digits.startsWith('020')) {
+      // Stray leading zero before the country code, e.g. "+02" + 01XXXXXXXXX.
+      digits = digits.substring(1);
     }
     // Strip the Egypt country code (20) if present.
     if (digits.startsWith('20') && digits.length == 12) {
