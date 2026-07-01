@@ -25,6 +25,7 @@ class FieldTasksProvider extends ChangeNotifier {
   bool _locationConsent = false;
   String? _error;
   String? _cachedDate;
+  String? _cachedUid; // which rep the cache belongs to (guards account switch)
   final Set<String> _busy = {}; // task ids with an in-flight write
 
   List<FieldTask> get tasks => _tasks;
@@ -44,23 +45,27 @@ class FieldTasksProvider extends ChangeNotifier {
   /// idempotent RPC first, then fetches each task with its visit count.
   Future<void> loadTodaysTasks() async {
     final today = _cairoToday();
-    if (_cachedDate == today && _tasks.isNotEmpty) return;
-    if (_cachedDate != today) {
-      _tasks = [];
-      _visitCounts.clear();
-      _cachedDate = null;
-    }
-
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) {
       _isLoading = false;
       notifyListeners();
       return;
     }
+
+    // Cache is valid only for the SAME rep on the SAME Cairo day. Keying on the
+    // date alone leaked the previous rep's tasks after an in-session account
+    // switch (this provider is app-scoped and survives logout).
+    if (_cachedUid == uid && _cachedDate == today && _tasks.isNotEmpty) return;
+    if (_cachedUid != uid || _cachedDate != today) {
+      _tasks = [];
+      _visitCounts.clear();
+      _cachedDate = null;
+      _cachedUid = null;
+    }
+
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
 
     try {
       await _loadConsent();
@@ -88,11 +93,27 @@ class FieldTasksProvider extends ChangeNotifier {
         _visitCounts[task.id] = _extractCount(map['task_visits']);
       }
       _cachedDate = today;
+      _cachedUid = uid;
     } catch (_) {
       _error = 'حدث خطأ أثناء تحميل مهام اليوم';
     }
 
     _isLoading = false;
+    notifyListeners();
+  }
+
+  /// Drop all cached state. Call on logout so the next rep to sign in on the
+  /// same device and day loads their own tasks instead of the previous rep's.
+  /// Safe to call anytime: visits are persisted server-side the moment they're
+  /// logged (awaited RPC), never buffered here — this only clears a read copy.
+  void reset() {
+    _tasks = [];
+    _visitCounts.clear();
+    _cachedDate = null;
+    _cachedUid = null;
+    _locationConsent = false;
+    _error = null;
+    _busy.clear();
     notifyListeners();
   }
 

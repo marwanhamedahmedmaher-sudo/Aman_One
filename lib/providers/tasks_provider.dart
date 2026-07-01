@@ -9,6 +9,7 @@ class TasksProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   String? _cachedDate; // Cairo-date string (YYYY-MM-DD) for which tasks are cached
+  String? _cachedUid; // which rep the cache belongs to (guards account switch)
   int _refillCount = 0; // refills used today (max 3)
 
   List<TaskAssignment> get tasks => _tasks;
@@ -27,16 +28,18 @@ class TasksProvider extends ChangeNotifier {
   /// Load tasks once per Cairo day. Returns cached data on subsequent calls.
   Future<void> loadTodaysTasks() async {
     final today = _cairoToday();
+    final uid = _supabase.auth.currentUser?.id;
 
-    // Cache hit — same Cairo day, already loaded
-    if (_cachedDate == today && _tasks.isNotEmpty) {
+    // Cache hit — same rep AND same Cairo day, already loaded
+    if (_cachedUid == uid && _cachedDate == today && _tasks.isNotEmpty) {
       return;
     }
 
-    // New day — clear stale cache + reset refill counter
-    if (_cachedDate != today) {
+    // Different rep or new day — clear stale cache + reset refill counter
+    if (_cachedUid != uid || _cachedDate != today) {
       _tasks = [];
       _cachedDate = null;
+      _cachedUid = null;
       _refillCount = 0;
     }
 
@@ -60,11 +63,23 @@ class TasksProvider extends ChangeNotifier {
           .map((row) => TaskAssignment.fromJson(row as Map<String, dynamic>))
           .toList();
       _cachedDate = today;
+      _cachedUid = uid;
     } catch (e) {
       _error = '\u062d\u062f\u062b \u062e\u0637\u0623 \u0623\u062b\u0646\u0627\u0621 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0645\u0647\u0627\u0645'; // حدث خطأ أثناء تحميل المهام
     }
 
     _isLoading = false;
+    notifyListeners();
+  }
+
+  /// Drop cached tasks. Call on logout so the next rep starts clean instead of
+  /// seeing the previous rep's cached assignments.
+  void reset() {
+    _tasks = [];
+    _cachedDate = null;
+    _cachedUid = null;
+    _refillCount = 0;
+    _error = null;
     notifyListeners();
   }
 

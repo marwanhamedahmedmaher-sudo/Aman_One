@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/field_tasks_provider.dart';
+import '../../providers/tasks_provider.dart';
+import '../../providers/merchant_list_provider.dart';
 import '../../theme/app_theme.dart';
 import '../auth/phone_entry_screen.dart';
 
@@ -15,7 +18,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _confirmLogout = false;
 
   Future<void> _handleLogout() async {
-    await context.read<AuthProvider>().logout();
+    // Clear per-rep cached state so the next account to sign in on this device
+    // doesn't inherit the previous rep's tasks/visits/merchants. Capture refs
+    // before the await — no BuildContext use across the async gap.
+    final auth = context.read<AuthProvider>();
+    context.read<FieldTasksProvider>().reset();
+    context.read<TasksProvider>().reset();
+    context.read<MerchantListProvider>().reset();
+
+    await auth.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const PhoneEntryScreen()),
