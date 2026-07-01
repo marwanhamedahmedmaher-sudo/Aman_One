@@ -3,10 +3,15 @@ name: Build Pilot APK
 on:
   workflow_dispatch:
     inputs:
-      version_name:
-        description: 'APK filename suffix (e.g. 1.0.0-pilot)'
-        required: true
-        default: '1.0.0-pilot'
+      label:
+        # The VERSION itself is NOT typed here — it is read from pubspec.yaml
+        # (single source of truth) so the artifact name can never disagree with
+        # the version compiled into the app. This is an OPTIONAL short suffix to
+        # describe the build line (e.g. "field-visits", "prod-simple"). Leave it
+        # blank for a plain version-only name. No default → no silent mislabel.
+        description: 'Optional short label appended after the pubspec version (e.g. field-visits). Blank = version only.'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -22,6 +27,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve version from pubspec
+        # Single source of truth for the version: pubspec.yaml `version: X.Y.Z+B`.
+        #   APP_VERSION  = X.Y.Z  (marketing version → --build-name, artifact name)
+        #   BUILD_NUMBER = github.run_number (monotonic versionCode, traceable to
+        #                  the exact Actions run; overrides pubspec's +B)
+        #   VERSION_SAFE = APP_VERSION[-label] used for the APK/artifact filename
+        # Because the filename is DERIVED from the committed version, a build can
+        # no longer be mislabeled by whatever was typed into the dispatch box.
+        run: |
+          RAW=$(grep -E '^version:' pubspec.yaml | head -1 | sed 's/version:[[:space:]]*//')
+          APP_VERSION="${RAW%%+*}"
+          if [ -z "$APP_VERSION" ]; then
+            echo "::error::could not parse version from pubspec.yaml (line: '$RAW')"
+            exit 1
+          fi
+          LABEL_SAFE=$(printf '%s' "${{ inputs.label }}" | tr -cd '[:alnum:]._-')
+          if [ -n "$LABEL_SAFE" ]; then
+            VERSION_SAFE="${APP_VERSION}-${LABEL_SAFE}"
+          else
+            VERSION_SAFE="$APP_VERSION"
+          fi
+          BUILD_NUMBER="${{ github.run_number }}"
+          echo "APP_VERSION=$APP_VERSION"   >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "VERSION_SAFE=$VERSION_SAFE" >> "$GITHUB_ENV"
+          echo "Resolved: app_version=$APP_VERSION build=$BUILD_NUMBER artifact=aman-v$VERSION_SAFE"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -74,6 +106,8 @@ jobs:
           : "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY secret is required — set it in repo Settings → Secrets and variables → Actions}"
           # MIXPANEL_TOKEN is optional — if empty, Analytics routes to NoopSink.
           flutter build apk --release --split-per-abi \
+            --build-name="$APP_VERSION" \
+            --build-number="$BUILD_NUMBER" \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
             --dart-define=MIXPANEL_TOKEN="$MIXPANEL_TOKEN"
@@ -274,19 +308,16 @@ jobs:
         if: always()
         run: docker rm -f mobsf >/dev/null 2>&1 || true
 
-      - name: Sanitize version and rename APKs
+      - name: Rename APKs
+        # VERSION_SAFE was resolved from pubspec.yaml in the "Resolve version"
+        # step — no re-typing, no fallback default, so the filename always
+        # matches the version compiled into the APK.
         run: |
-          VERSION_SAFE=$(printf '%s' "${{ inputs.version_name }}" | tr -cd '[:alnum:]._-')
-          if [ -z "$VERSION_SAFE" ]; then
-            echo "::error::version_name contained no allowed characters ([A-Za-z0-9._-])"
-            exit 1
-          fi
           for abi in $ABIS; do
             cp "build/app/outputs/flutter-apk/app-${abi}-release.apk" \
                "build/app/outputs/flutter-apk/aman-v${VERSION_SAFE}-${abi}.apk"
           done
           ls -lh build/app/outputs/flutter-apk/aman-v*.apk
-          echo "VERSION_SAFE=$VERSION_SAFE" >> "$GITHUB_ENV"
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
