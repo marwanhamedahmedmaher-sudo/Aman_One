@@ -92,16 +92,22 @@ class _MainShellState extends State<MainShell> {
               color: isActive ? AppColors.tabActive : AppColors.tabInactive,
             ),
             const SizedBox(height: 4),
-            Text(
-              label,
-              maxLines: 1,
-              softWrap: false,
-              overflow: TextOverflow.visible,
-              textAlign: TextAlign.center,
-              style: AppTheme.bodySmall.copyWith(
-                fontSize: 11,
-                color: isActive ? AppColors.tabActive : AppColors.tabInactive,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+            // scaleDown keeps the label on one line and fully visible without
+            // wrapping or painting outside the fixed tab slot (would overlap
+            // neighbors on narrow screens). Only shrinks if the active/bold
+            // label can't fit — imperceptible at this size.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                textAlign: TextAlign.center,
+                style: AppTheme.bodySmall.copyWith(
+                  fontSize: 11,
+                  color: isActive ? AppColors.tabActive : AppColors.tabInactive,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                ),
               ),
             ),
           ],

@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/auth_header.dart';
-import '../../widgets/responsive_container.dart';
 import 'forgot_password_screen.dart';
 import 'password_screen.dart';
 
@@ -33,6 +32,9 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     var digits = raw.replaceAll(RegExp(r'\D'), '');
     if (digits.startsWith('00')) {
       digits = digits.substring(2);
+    } else if (digits.startsWith('020')) {
+      // Stray leading zero before the country code, e.g. "+02" + 01XXXXXXXXX.
+      digits = digits.substring(1);
     }
     // Strip the Egypt country code (20) if present.
     if (digits.startsWith('20') && digits.length == 12) {
@@ -82,8 +84,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SingleChildScrollView(
-        child: ResponsiveContainer(
-          child: Column(
+        child: Column(
           children: [
             const AuthHeader(height: 280),
             Transform.translate(
@@ -171,7 +172,6 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
               ),
             ),
           ],
-        ),
         ),
       ),
     );
