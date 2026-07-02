@@ -509,7 +509,58 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
       setState(() => _fix =
           (lat: p.latitude, lng: p.longitude, acc: p.accuracy, at: p.timestamp));
     } else {
-      _snack(res.error ?? 'تعذّر تحديد الموقع', isError: true);
+      await _handleGpsFailure(res);
+    }
+  }
+
+  /// Fallback UX when a fix couldn't be taken. Instead of a dead-end snackbar,
+  /// offer the recovery action that matches WHY it failed:
+  /// - not allowed (denied)   → re-request the permission (retry)
+  /// - denied permanently     → open the app settings page
+  /// - GPS off                → open the location settings page
+  /// - allowed but fix failed → retry the fix
+  Future<void> _handleGpsFailure(LocationResult res) async {
+    final kind = res.kind ?? LocationErrorKind.fixFailed;
+
+    final String actionLabel;
+    final Future<void> Function() action;
+    switch (kind) {
+      case LocationErrorKind.permissionDeniedForever:
+        actionLabel = 'فتح الإعدادات';
+        action = () => LocationService.openAppSettings();
+        break;
+      case LocationErrorKind.serviceDisabled:
+        actionLabel = 'تفعيل الموقع';
+        action = () => LocationService.openLocationSettings();
+        break;
+      case LocationErrorKind.permissionDenied:
+      case LocationErrorKind.fixFailed:
+        // Re-request the permission / retry the fix by re-running capture.
+        actionLabel = 'إعادة المحاولة';
+        action = _captureGps;
+        break;
+    }
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تعذّر تحديد الموقع'),
+        content: Text(res.error ?? 'تعذّر تحديد الموقع'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed == true && mounted) {
+      await action();
     }
   }
 
