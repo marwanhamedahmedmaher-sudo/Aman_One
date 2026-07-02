@@ -23,6 +23,10 @@
   button:disabled { opacity: .6; cursor: default; }
   #status { margin-top: 16px; font-size: 14px; min-height: 20px; }
   .ok { color: #0F6E56; } .err { color: var(--red); }
+  #who { display: none; margin-top: 16px; padding: 10px 12px; border-radius: 10px;
+         font-size: 14px; font-weight: 600; }
+  #who.good { display: block; background: #E6F4EF; color: #0F6E56; border: 1px solid #BFE3D6; }
+  #who.bad  { display: block; background: #FBEAEA; color: var(--red); border: 1px solid #F0C8C9; }
 </style>
 </head>
 <body>
@@ -31,10 +35,10 @@
     <p class="sub">سجّل الدخول بحساب المشرف، اختر التاريخ، ثم نزّل ملف Excel — الصور مدمجة داخل الجدول.</p>
 
     <label>رقم الموبايل (المشرف)</label>
-    <input id="phone" type="text" inputmode="tel" placeholder="+201234567890" />
+    <input id="phone" type="text" inputmode="tel" placeholder="+201234567890" autocomplete="off" />
 
     <label>كلمة المرور</label>
-    <input id="password" type="password" placeholder="••••••••" />
+    <input id="password" type="password" placeholder="••••••••" autocomplete="new-password" />
 
     <label>التاريخ</label>
     <input id="date" type="date" />
@@ -44,6 +48,7 @@
     </div>
 
     <button id="go">تنزيل ملف Excel</button>
+    <div id="who"></div>
     <div id="status"></div>
   </div>
 
@@ -54,6 +59,7 @@
   const $ = (id) => document.getElementById(id);
   $('date').value = new Date(Date.now() + 2*3600*1000).toISOString().slice(0,10); // Cairo today
   const status = (msg, cls='') => { const s = $('status'); s.textContent = msg; s.className = cls; };
+  const ROLE_AR = { supervisor: 'مشرف', admin: 'مسؤول النظام', sales_rep: 'مندوب مبيعات' };
 
   $('go').addEventListener('click', async () => {
     const phone = $('phone').value.trim();
@@ -61,6 +67,7 @@
     if (!phone || !password) return status('أدخل رقم الموبايل وكلمة المرور.', 'err');
 
     $('go').disabled = true;
+    $('who').className = ''; // hide any stale identity banner
     try {
       status('جارٍ تسجيل الدخول…');
       const auth = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
@@ -70,6 +77,26 @@
       });
       const aj = await auth.json();
       if (!auth.ok || !aj.access_token) throw new Error(aj.error_description || aj.msg || 'فشل تسجيل الدخول');
+
+      // Identity + role gate: show WHO logged in; only supervisor/admin may export.
+      // Guards against browser autofill silently logging in as a rep → empty sheet.
+      status('جارٍ التحقق من الحساب…');
+      const ures = await fetch(
+        `${SUPABASE_URL}/rest/v1/users?id=eq.${aj.user.id}&select=name,role`,
+        { headers: { 'apikey': ANON, 'Authorization': `Bearer ${aj.access_token}` } },
+      );
+      const me = ures.ok ? (await ures.json())[0] : null;
+      if (!me) throw new Error('تعذّر التحقق من هوية الحساب — أعد المحاولة.');
+
+      const privileged = me.role === 'supervisor' || me.role === 'admin';
+      $('who').textContent = `تم تسجيل الدخول: ${me.name} — ${ROLE_AR[me.role] || me.role}`;
+      $('who').className = privileged ? 'good' : 'bad';
+      if (!privileged) {
+        throw new Error(
+          'هذا الحساب مندوب مبيعات وليس مشرفًا — التصدير متاح لحساب المشرف فقط. ' +
+          'غالبًا ملأ المتصفح بيانات دخول قديمة تلقائيًا؛ امسح الخانتين وأدخل رقم المشرف وكلمة مروره يدويًا.'
+        );
+      }
 
       status('جارٍ تجهيز ملف Excel (قد يستغرق لحظات مع الصور)…');
       const all = $('all').checked;
