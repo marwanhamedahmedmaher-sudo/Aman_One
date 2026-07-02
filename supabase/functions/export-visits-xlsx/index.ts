@@ -1,10 +1,16 @@
 // ============================================================================
-// export-visits-xlsx — one Excel sheet of field visits, with the photo embedded
-// inline in each row. A sales rep exports their OWN visits; a supervisor/admin
-// exports everyone's. RTL Arabic worksheet. Photo bucket stays private.
+// export-visits-xlsx — Excel export of field activity. Sheet 1: task_visits
+// (current build) with the photo embedded inline in each row. Sheet 2 (only
+// when rows exist): task_checkins — the OLD one-check-in-per-task model still
+// being written by reps on the pre-visits APK. Interim visibility until the
+// fleet upgrade (P1-17); remove the sheet once task_checkins goes quiet.
 //
-//   GET /functions/v1/export-visits-xlsx?date=YYYY-MM-DD   (one Cairo day)
-//   GET /functions/v1/export-visits-xlsx                   (all visits, capped)
+// A sales rep exports their OWN activity; a supervisor/admin exports everyone's.
+// RTL Arabic worksheets. Photo bucket stays private.
+//
+//   GET /functions/v1/export-visits-xlsx?from=YYYY-MM-DD&to=YYYY-MM-DD  (range, inclusive)
+//   GET /functions/v1/export-visits-xlsx?date=YYYY-MM-DD                (one Cairo day, legacy)
+//   GET /functions/v1/export-visits-xlsx                               (all visits, capped)
 //
 // Photos are fetched with the service-role key and embedded as thumbnails.
 // ============================================================================
@@ -32,11 +38,6 @@ function err(body: unknown, status: number) {
   });
 }
 
-function cairoToday(): string {
-  const c = new Date(Date.now() + 2 * 3600 * 1000); // Cairo = UTC+2, no DST
-  return c.toISOString().slice(0, 10);
-}
-
 function hhmmCairo(iso: string): string {
   const d = new Date(new Date(iso).getTime() + 2 * 3600 * 1000);
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
@@ -59,7 +60,6 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get('Authorization') ?? '';
   if (!authHeader) return err({ error: 'missing_authorization' }, 401);
 
-  // 1. Authorize: supervisor/admin only (checked under the caller's own RLS).
   const userClient = createClient(SUPABASE_URL, ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
   });
@@ -76,11 +76,19 @@ Deno.serve(async (req: Request) => {
   const privileged = role === 'supervisor' || role === 'admin';
 
   const url = new URL(req.url);
-  const date = url.searchParams.get('date'); // null => all visits
-  const label = date ?? 'all';
+  const date = url.searchParams.get('date');   // legacy single-day
+  const from = url.searchParams.get('from');   // YYYY-MM-DD (inclusive)
+  const to = url.searchParams.get('to');       // YYYY-MM-DD (inclusive)
+  const label = date ?? ((from || to) ? `${from ?? 'start'}_${to ?? 'end'}` : 'all');
 
-  // 2. Service-role client for the data + photo download.
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+  const dateFilter = (q: any) => {
+    if (date) return q.eq('field_tasks.task_date', date);
+    if (from) q = q.gte('field_tasks.task_date', from);
+    if (to) q = q.lte('field_tasks.task_date', to);
+    return q;
+  };
 
   let q = admin
     .from('task_visits')
@@ -92,20 +100,34 @@ Deno.serve(async (req: Request) => {
     )
     .order('recorded_at', { ascending: false })
     .limit(MAX_ROWS);
-  if (date) q = q.eq('field_tasks.task_date', date);
+  q = dateFilter(q);
   if (!privileged) q = q.eq('rep_id', user.id); // rep → own visits only
 
   const { data: visits, error: vErr } = await q;
   if (vErr) return err({ error: 'query_failed', detail: vErr.message }, 500);
 
-  // Rep names (FK is to auth.users — resolve public.users separately).
-  const repIds = [...new Set((visits ?? []).map((v) => v.rep_id))];
+  // OLD-model check-ins (pre-visits APK). Same scoping + date filter. A query
+  // error here must not sink the visits export — the sheet is best-effort.
+  let cq = admin
+    .from('task_checkins')
+    .select(
+      'rep_id, recorded_at, in_window, lat, lng, accuracy_m, ' +
+        'field_tasks!inner(title, task_date, window_start, window_end)',
+    )
+    .order('recorded_at', { ascending: false })
+    .limit(MAX_ROWS);
+  cq = dateFilter(cq);
+  if (!privileged) cq = cq.eq('rep_id', user.id);
+  const { data: checkins } = await cq;
+
+  const repIds = [
+    ...new Set([...(visits ?? []), ...(checkins ?? [])].map((r) => r.rep_id)),
+  ];
   const { data: users } = repIds.length
     ? await admin.from('users').select('id, name, employee_id, region').in('id', repIds)
     : { data: [] as any[] };
   const userMap = new Map((users ?? []).map((u) => [u.id, u]));
 
-  // 3. Build the workbook.
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('الزيارات', { views: [{ rightToLeft: true }] });
   ws.columns = [
@@ -130,7 +152,7 @@ Deno.serve(async (req: Request) => {
   ];
   ws.getRow(1).font = { bold: true };
   ws.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
-  const photoColIdx = ws.columns.length - 1; // 0-based index of "الصورة"
+  const photoColIdx = ws.columns.length - 1;
 
   for (const v of visits ?? []) {
     const u = userMap.get(v.rep_id);
@@ -165,7 +187,6 @@ Deno.serve(async (req: Request) => {
     row.height = 64;
     row.alignment = { vertical: 'middle', wrapText: true };
 
-    // Embed the photo thumbnail in the "الصورة" cell.
     if (v.photo_path) {
       try {
         const { data: blob, error: dErr } = await admin.storage.from(BUCKET).download(v.photo_path);
@@ -180,6 +201,47 @@ Deno.serve(async (req: Request) => {
       } catch (_) {
         // Skip a bad/oversized image; the rest of the row still exports.
       }
+    }
+  }
+
+  // Sheet 2 — old check-ins. Skipped entirely when empty, so the sheet
+  // disappears on its own once the fleet is on the visits APK.
+  if ((checkins ?? []).length) {
+    const ws2 = wb.addWorksheet('تسجيلات النظام القديم', { views: [{ rightToLeft: true }] });
+    ws2.columns = [
+      { header: 'اسم المندوب', key: 'rep', width: 20 },
+      { header: 'رقم الموظف', key: 'emp', width: 12 },
+      { header: 'المنطقة', key: 'region', width: 12 },
+      { header: 'المهمة', key: 'task', width: 26 },
+      { header: 'التاريخ', key: 'date', width: 12 },
+      { header: 'الوقت المحدد', key: 'sched', width: 14 },
+      { header: 'وقت التسجيل', key: 'time', width: 10 },
+      { header: 'الالتزام', key: 'window', width: 12 },
+      { header: 'الدقة (متر)', key: 'acc', width: 10 },
+      { header: 'رابط الخريطة', key: 'map', width: 16 },
+    ];
+    ws2.getRow(1).font = { bold: true };
+    ws2.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+    for (const c of checkins ?? []) {
+      const u = userMap.get(c.rep_id);
+      const ft = c.field_tasks as {
+        title?: string; task_date?: string; window_start?: string; window_end?: string;
+      };
+      ws2.addRow({
+        rep: u?.name ?? '',
+        emp: u?.employee_id ?? '',
+        region: u?.region ?? '',
+        task: ft?.title ?? '',
+        date: ft?.task_date ?? '',
+        sched: ft?.window_start && ft?.window_end
+          ? `${hhmmCairo(ft.window_start)} - ${hhmmCairo(ft.window_end)}`
+          : '',
+        time: hhmmCairo(c.recorded_at),
+        window: c.in_window ? 'في الموعد' : 'خارج الموعد',
+        acc: c.accuracy_m == null ? '' : Math.round(c.accuracy_m),
+        map: { text: 'الخريطة', hyperlink: `https://maps.google.com/?q=${c.lat},${c.lng}` },
+      }).alignment = { vertical: 'middle', wrapText: true };
     }
   }
 
