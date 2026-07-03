@@ -4,6 +4,149 @@ Session log entries rotated out of `CLAUDE.md`. Newest first within this file.
 
 ---
 
+### Session: 2026-06-08 — Unified OCR-first merchant onboarding across all products
+**Duration:** long interactive session
+**Focus:** Turn the lead-capture POC into a presentation/handover-ready, demo-on-emulator onboarding flow: OCR-first ID scan + richer per-product forms, unified into a single collect-once flow across Microfinance / Acceptance POS / BP POS. Built from Figma references the user shared.
+**Completed:**
+- **eKYC / OCR** (the "how do I do OCR" ask): vendor-neutral `EkycService` facade — `MockEkycService` (offline, generates trigger-valid Egyptian NIDs) powers the emulator demo; `EdgeFunctionEkycService` + [supabase/functions/ekyc-scan/index.ts](supabase/functions/ekyc-scan/index.ts) is the production seam. Decision: reuse company eKYC (e.g. Valify) — ML Kit can't read Arabic on-device.
+- **Figma extraction:** read the Acceptance "bank-card payment + installment" flow (Individuals + Companies) via Figma MCP — full field map (4-part name, address, NID, DOB, business/branch, device/service, settlement, company docs). BP POS ("إضافة تاجر") confirmed same shape via a shared zip ([docs/reference-uis/bp-pos/](docs/reference-uis/bp-pos/)). Figma MCP Starter quota exhausted mid-session → switched to local PNG/zip reading.
+- **Unified onboarding wizard** — generic renderer over a declarative spec: collect-once `kycCoreSteps` + `productModuleStep` per selected product + a `requiredDocs` step deduped by type. Individual/Company toggle. Submit → one `merchants` row + `onboarding_application` JSONB (migration 017), graceful fallback if unmigrated.
+- **Lead form slimmed** to identity + product selection + one "بدء التسجيل" → wizard. Zero double-entry. Cross-sell task completion rerouted through the wizard.
+- **Shipped:** committed `c5087fe` → pushed to `ci/split-per-abi` → **Build Pilot APK green in 10m11s** (MobSF + secret-scan gates passed with image_picker added); artifact `aman-pilot-apks-v1.1.0-onboarding`.
+- **Patrol golden-path** updated to the new entry flow (shallow: login → new lead → products → launch wizard, assert step 1). Deep coverage deferred (needs image-picker test seam; mock OCR overwrites the NID). `flutter analyze` clean throughout.
+**Decisions:**
+- New Current Decisions entry: unified onboarding architecture (collect-once KYC + product modules + deduped docs + JSONB + eKYC facade).
+- Demo target is the working app on the emulator; handover = show the DB + logic, prod mimics against the real eKYC server. Documents capture-and-stub for the pilot.
+- Local Windows release/debug builds confirmed blocked by the loopback/hosts issue (now hitting debug too) → CI APK is the build path. `flutter config --no-enable-web/desktop` needed locally so image_picker's federated desktop plugins didn't trip the Dev-Mode symlink requirement (local-only setting).
+**Backlog impact:** P2-6 → IN_PROGRESS (the OCR + unified onboarding is the graduation).
+**Blockers now:** 0 active (local build environment is a known constraint, not a blocker — CI builds).
+**Files changed:** `lib/services/ekyc_service.dart` (new), `lib/models/card_application_spec.dart` (new), `lib/screens/acceptance/card_application_wizard.dart` (new), `lib/screens/lead/new_lead_screen.dart` (rewritten/slimmed), `supabase/functions/ekyc-scan/index.ts` (new), `supabase/migrations/017_onboarding_application.sql` (new), `pubspec.yaml`/`pubspec.lock` (+image_picker), `patrol_test/patrol_test.dart` (updated). Committed as `c5087fe`. `docs/reference-uis/bp-pos/` left untracked.
+**Pending user action:**
+1. **Download + install the APK:** `gh run download 27167915596 --repo marwanhamedahmedmaher-sudo/Aman_One` → `adb install aman-1.1.0-onboarding-arm64-v8a.apk` on the emulator.
+2. **Apply migration 017** to the demo DB for full JSONB persistence (else the graceful fallback lands only the core row).
+3. **Update the git remote** (repo renamed Jawaker → Aman_One): `git remote set-url origin https://github.com/marwanhamedahmedmaher-sudo/Aman_One.git`.
+**Next Session:**
+1. Wire the real company eKYC vendor behind the `ekyc-scan` Edge Function.
+2. Real document upload → Supabase Storage bucket + RLS + `merchant_documents`; normalized `merchant_products` table.
+3. Read-only merchant profile of the onboarding payload (folds in reveal-with-audit).
+4. Patrol deep-wizard coverage — injectable image source (test seam) + deterministic mock NID for assert/cleanup.
+5. Confirm BP POS form specifics against real screens (current bill-service step is a reasonable draft).
+
+### Session: 2026-04-21 — Pilot cohort expansion: 17 Outdoor Retail sales reps provisioned in prod
+**Duration:** ~15m
+**Focus:** HR sent the filled `jawaker_new_users_template-1.xlsx` (17 rows across Cairo / Delta / Upper Egypt Outdoor Retail). Normalize + batch-provision into prod in one pass.
+**Completed:**
+- **Data normalization before provisioning** — HR edited the template structurally, didn't match `scripts/build_users_template.ps1` output schema:
+  - Column order swapped and `employee_id` column header renamed to `hr_id`. Parsed by header name, not positional index.
+  - Phones arrived 10-digit without country code (`1116795945`) — normalized to E.164 (`+201116795945`).
+  - 14 of 17 rows had empty `role` — defaulted to `sales_rep` per template rule.
+  - 2 rows had `role = "Outdoor Retail "` (HR pasted `business_unit` into the `role` column) — overridden to `sales_rep`.
+  - All fields right-trimmed.
+- **New script [scripts/provision_reps_batch.sh](scripts/provision_reps_batch.sh)**: loops [scripts/provision_rep.sh](scripts/provision_rep.sh) over the 17-row roster embedded in the script. Continue-on-failure per rep (captures successes + failures into separate arrays), prints padded `column -s $'\t' -t` table at the end with name / phone / employee_id / auth_user_id / temp_password. Requires `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` pre-exported from parent shell (via `source .env.admin` in a shell where `BW_SESSION` is already unlocked). Nothing written to disk — temp passwords live only in the operator's terminal buffer.
+- **17/17 provisioned clean.** Single pass, zero retries. Operator copied temp-password table into password manager and confirmed back only the success count.
+**Decisions:**
+- **Roster embedded in the script, not a sidecar TSV.** Keeps rep PII-adjacent data out of disk-resident data files after the run — operator can delete the one-shot script post-rollout.
+- **Batch script left in the tree, not gitignored.** Names + phones of internal reps aren't state secrets (they land in Supabase after the run anyway). Operator's call whether to commit for the next batch round or delete.
+- **Case-insensitive confirmation gate** (`${CONFIRM^^}`) — first attempt with `yes` tripped the case-sensitive `== "YES"` check. Loosened after one aborted run.
+- **Password handoff stayed off-chat.** Operator pasted only the counts block back to Claude; temp-password table stayed on terminal.
+**Backlog impact:**
+- **P0-1 note bumped**: pilot cohort grew from 1 → 18 active provisioned reps in prod.
+- No other backlog changes. No status transitions.
+**Blockers now:** 0 active.
+**Files changed:**
+- `scripts/provision_reps_batch.sh` (new, ~110 lines)
+- `CLAUDE.md` (P0-1 note bump, this entry, rotation)
+- `CLAUDE.archive.md` (rotated 2026-04-17 evening entry)
+**Pending user action:**
+1. **Distribute temp passwords** to each rep via email + WhatsApp per [docs/P0-DASHBOARD-RUNBOOK.md](docs/P0-DASHBOARD-RUNBOOK.md). Reps will hit the `must_change_password` screen on first login.
+2. **Decide on `scripts/provision_reps_batch.sh`** — commit (reusable for next round), keep local (add to `.gitignore`), or delete.
+3. **Optional SQL spot-check** against prod — `SELECT id, phone, role, must_change_password FROM public.users WHERE created_at > '2026-04-21' ORDER BY created_at DESC;` — expect 17 rows, all `sales_rep`, all `must_change_password=true`.
+**Next Session:**
+1. **Pentest automation** — still waiting on 3 GH secrets (`DEV_SUPABASE_URL` / `DEV_SUPABASE_SERVICE_ROLE_KEY` / `DEV_SUPABASE_ANON_KEY`) + first green CI run on `Pentest — RLS Fuzzer` and the updated `Build Pilot APK` workflows before flipping P1-16 to DONE.
+2. **CodeRabbit follow-ups** from 2026-04-17 afternoon still unopened — Security Definer hardening (`SET search_path` + internal `set_claim` access control) + RTL fix in [lib/screens/auth/forgot_password_screen.dart:19](lib/screens/auth/forgot_password_screen.dart).
+3. **P1-15 tablet responsive pass** — still awaiting answers from the 2026-04-19 session: (a) which tablet hardware pilot reps use, (b) portrait vs landscape default.
+
+
+### Session: 2026-04-20 — Pentest automation: RLS fuzzer + MobSF wired into CI
+**Duration:** ~45m
+**Focus:** Close the pentest-automation gap — the top "Next Session" item that's been carrying forward across the last three session logs (2026-04-17 post-prod-smoke, 2026-04-17 late-evening, 2026-04-19). Stand up two independent security gates in CI: (1) RLS fuzzer proving Postgres row-level policies actually reject cross-rep reads/writes and privilege escalation, (2) MobSF static scan of the pilot APK to catch manifest / crypto / traffic / secret issues before release.
+**Completed:**
+- **Finished [scripts/rls_fuzzer.sh](scripts/rls_fuzzer.sh)** (was ~90% there as an untracked draft). Provisions three throwaway fixtures (rep_a, rep_b, admin) via the Admin API + `phone_confirm: true`, logs each one in via GoTrue to get real access-token JWTs, then drives 15 PostgREST calls to exercise the RLS matrix. Existing 12 cases kept as-is; added 3 high-value ones: (a) rep INSERT `activity_types` must be rejected (admin-only per migration 012), (b) rep INSERT `cross_sell_pool` must be rejected (admin-only per migration 013), (c) soft-delete invisibility — after rep sets own merchant.deleted_at, rep's own SELECT must return 0 rows (guards against a subtle USING-clause regression that would leak logically-deleted records back to the deleter). Cleanup trap deletes fixtures + merchants + audit_log rows on EXIT regardless of outcome.
+- **Fixed a real bug in the draft** — `seed_merchant()` built the merchant phone as `"0101234560${name_suffix:0:1}"` where `name_suffix` was a letter ("A"/"B"), producing `"0101234560A"` / `"0101234560B"`. The `normalize_phone` trigger in migration 002 strips non-digits then requires exactly 11 digits with a valid 10/11/12/15 operator prefix — `0101234560A` would hit the 10-digit length check and the Arabic error. Replaced with `"010${RUN_ID: -7}${rep_idx}"` where rep_idx is "1" for A and "2" for B: 11 digits, `010` prefix, unique per (run, rep). This would have caused the first CI run to fail at fixture seeding before any RLS assertions even ran.
+- **Ran the fuzzer end-to-end against dev — `PASS: 15 / FAIL: 0`** (run_id 20260420102759). Three rounds of iteration before clean:
+  1. **First run**: died at `provision_user()` line 179 — `local phone=... role="$3" name="${FUZZ_PREFIX}_${role}_${RUN_ID}"` tripped Git Bash's older bash under `set -u` because `$role` is evaluated in the same `local` builtin invocation that declares it. Split into two `local` statements — `role="$3"` on one line, `name="..."` on the next. Fine on bash 5+ / GNU/Linux CI runners; the split is insurance for the heterogeneous dev laptops that might shell-check the script ahead of CI.
+  2. **Second run**: soft-delete test (case 15) failed with PostgREST returning `42501 "new row violates row-level security policy for table 'merchants'"`. Surprising: a rep updating their own row's `deleted_at` shouldn't violate the `merchants_update` WITH CHECK (created_by unchanged, status unchanged). Root cause: **PostgreSQL applies the SELECT policy's USING as an implicit WITH CHECK on UPDATEs that use `RETURNING`**, and PostgREST always sends `Prefer: return=representation`. The SELECT USING is `(deleted_at IS NULL) AND (created_by = auth.uid() OR is_admin())` — the post-update row has `deleted_at != NULL`, so SELECT USING fails, Postgres raises 42501, the UPDATE rolls back. That's actually *correct* behavior (reps shouldn't be client-side soft-deleting their own leads), just not the attack path this test was supposed to cover. Refactored case 15: soft-delete runs as **service_role** (the real threat model — admin/backend soft-deletes a row) and then verifies rep_a (the creator) can no longer SELECT it.
+  3. **Third run**: diagnostic bug — used the admin JWT to verify the service_role PATCH persisted `deleted_at`, but the SELECT policy's `deleted_at IS NULL` filter hides deleted rows from **everyone** through PostgREST, admin included. Swapped the diagnostic to a service_role SELECT (bypasses RLS). Green.
+- **Notable surprise worth remembering**: the `deleted_at IS NULL` filter in `merchants_select` USING means even admin users querying via PostgREST cannot see soft-deleted rows. That's probably fine for the pilot — admins use the Supabase Dashboard (direct DB access, bypasses RLS) for deleted-row operations — but worth flagging in case any future in-app admin feature needs to read the soft-delete tombstone.
+- **New workflow [.github/workflows/pentest-rls.yml](.github/workflows/pentest-rls.yml)**: PR-triggered on `supabase/migrations/**` + `scripts/rls_fuzzer.sh` + the workflow itself, also `workflow_dispatch`. 10-min cap, concurrency group per ref so parallel runs don't collide on shared-dev fixtures. **Dual prod-safety gate**: CI-level case statement rejects `DEV_SUPABASE_URL` containing the prod project ref before the script runs, and the script itself has its own identical guard (defense in depth). Three new GH secrets required: `DEV_SUPABASE_URL`, `DEV_SUPABASE_SERVICE_ROLE_KEY`, `DEV_SUPABASE_ANON_KEY`.
+- **Extended [.github/workflows/build-pilot-apk.yml](.github/workflows/build-pilot-apk.yml)** with a MobSF scan step, inserted after the existing `apktool d | grep` secret scan and before APK artifact upload. Spins up `opensecurity/mobile-security-framework-mobsf:latest` on the Ubuntu runner with an ephemerally-generated `MOBSF_API_KEY` (no secret required; the key never leaves the runner), bound to `127.0.0.1:8000` so the API surface isn't exposed beyond the container. Polls the root endpoint for up to 180s (Django first-run init takes ~60-90s on a cold runner), uploads the arm64-v8a APK (the variant pilot reps actually install — scanning one ABI catches 99% of findings at 1/3 the cost), calls `/api/v1/scan` with a 10-min `--max-time`, fetches `/api/v1/report_json` with a 2-min cap, parses `.appsec.high[]?.title`, applies a substring allowlist, hard-fails on any unallowlisted HIGH. Report JSON uploaded as `mobsf-report-<run_id>` artifact (named off `github.run_id` not `VERSION_SAFE` so triage data is still available when the gate itself fails before the rename step runs).
+- **Bash syntax-checked the fuzzer**, visually validated both workflow YAMLs (no Python/node/ruby/yq on the dev laptop, so full YAML parse was done by reading the file back).
+**Decisions:**
+- **Two workflows, not one.** The RLS fuzzer runs on PR against dev; MobSF runs on manual pilot-APK builds against prod-signed artifacts. Different triggers, different blast radii, different failure signatures — merging them would force either unnecessary MobSF runs on every migration PR or surrender the fast RLS feedback loop.
+- **Ephemeral MobSF API key per run.** Skip the GH secret. The key is only used to talk to the local-to-runner container and is thrown away when the runner tears down. Simpler than managing yet another secret with no security upside.
+- **Scan arm64-v8a only, not all three ABIs.** Java/Kotlin/manifest surface is identical across the split APKs; only the bundled native `.so` files differ. MobSF's static analyzer operates on the manifest + DEX + resources + string tables — scanning every ABI would triple cost with ~0 additional finding coverage. The one exception would be native-code-specific CVEs in the bundled Flutter engine, but those will be identical across the three engine binaries anyway.
+- **Allowlist as inline bash array, not a separate config file.** Pros: allowlist additions show up in PR diffs where reviewers can push back on weak justifications. Cons: marginally harder to share across workflows. Worth it for the audit-trail win.
+- **Starting allowlist deliberately minimal** — 3 entries for well-known Flutter false positives (allowBackup, debug-cert misreads). First CI run will likely surface 1–3 more that need triage; grow the list in review, don't preemptively pad it.
+- **Track `:latest` on the MobSF image during pilot**, not a pinned tag. Rationale: we don't yet know which MobSF version produces a stable report shape for our APK, and the `jq -e '.appsec.high'` structure guard catches drift explicitly. After the first green run on a known-good upstream version, pin to that tag for reproducibility.
+- **RLS fuzzer hits dev Supabase, not prod.** Fixtures land in `auth.users` and `public.users`; even with end-of-run cleanup, a bug could leave test users orphaned briefly, and prod `audit_log` should never accumulate synthetic RLS-test rows. Opposite tradeoff from Patrol (which runs against prod intentionally to test what actually ships) — Patrol only ever writes one merchant row per run and cleans it up with the rep's own JWT under RLS, whereas the fuzzer *has* to use service-role to provision auth users. Service-role on prod from CI is a step too far for the pilot.
+**Backlog impact:**
+- **P1-16 added (IN_PROGRESS).** Flips to DONE after first green run on both `Pentest — RLS Fuzzer` and the updated `Build Pilot APK` workflows.
+- No rows closed or changed status. No new Current Decisions (no posture shifts).
+**Blockers now:** 0 active.
+**Files changed:**
+- `scripts/rls_fuzzer.sh` (~50 lines added — 3 new cases + seed_merchant fix)
+- `.github/workflows/pentest-rls.yml` (new, ~95 lines)
+- `.github/workflows/build-pilot-apk.yml` (+ ~140 lines — MobSF step, stop-container step, report-upload step)
+- `CLAUDE.md` (P1-16 row added, this entry, rotation)
+- `CLAUDE.archive.md` (rotated 2026-04-17 afternoon entry)
+**Pending user action (before first CI run):**
+1. **Add 3 GH secrets** at Settings → Secrets and variables → Actions: `DEV_SUPABASE_URL` (must be `https://yynhcrtdzgcgedkolgxw.supabase.co`, NOT prod), `DEV_SUPABASE_SERVICE_ROLE_KEY` (from Bitwarden item `Aman Supabase Dev service_role`), `DEV_SUPABASE_ANON_KEY`.
+2. **Run fuzzer locally once** against dev before pushing the PR — `source .env.admin` (flip target to dev), `export SUPABASE_ANON_KEY=...`, `bash scripts/rls_fuzzer.sh`. If it prints `PASS: 15` and `FAIL: 0`, CI will be green too.
+3. **Trigger Build Pilot APK** via `workflow_dispatch` once the migration PR lands — first run will surface which HIGH findings MobSF flags on the current APK. Triage each one: either fix or add a title substring to the `ALLOWLIST=( ... )` array in the workflow.
+4. **Flip P1-16 to DONE <date>** after both first green runs.
+**Next Session:**
+1. **After first CI runs land**, triage any MobSF HIGH findings that surface. Expect 1–3 entries that need either fixing (e.g. `android:allowBackup` → false if we decide to go stricter for pilot) or explicit allowlist justification. Each allowlist addition should cite the specific Flutter/framework behavior it refers to in the workflow comment.
+2. **Pin the MobSF image tag** once the first green run confirms report-shape stability. Target format `opensecurity/mobile-security-framework-mobsf:v4.x.y`.
+3. **Two CodeRabbit follow-ups from 2026-04-17 afternoon still unopened** — Security Definer hardening (`SET search_path` + internal `set_claim` access control) and the RTL fix in [lib/screens/auth/forgot_password_screen.dart:19](lib/screens/auth/forgot_password_screen.dart). File before pilot traffic accumulates; both are small, self-contained PRs.
+4. **P1-15 (tablet responsive pass) scoping** — still waiting on the two prerequisites from the 2026-04-19 session: (a) which tablet hardware pilot reps use, (b) portrait vs landscape default. Without those, adding a tablet AVD to the Patrol matrix is guesswork.
+
+---
+
+### Session: 2026-04-19 — Tablet quick-win: max-width ResponsiveContainer wrapper on all screens
+**Duration:** ~25m
+**Focus:** Pilot discovery — most of our reps are actually on tablets, not phones. The app installs fine on Android tablets (no manifest restrictions), but the UI is phone-first with zero adaptive layouts — on a 10" tablet every form field stretches edge-to-edge, buttons are comically wide, and there's a sea of whitespace between the bottom nav and anything else. Ship the cheapest hotfix that makes the app usable on tablets today, and queue a proper responsive refactor for later.
+**Completed:**
+- **Scoped two tiers** with the user: (1) quick win — constrain content to ~640 dp max-width, centred; (2) proper responsive pass — master/detail, landscape, breakpoints. User greenlit shipping tier 1 now and deferring tier 2 to the backlog.
+- **New reusable widget** [lib/widgets/responsive_container.dart](lib/widgets/responsive_container.dart): `Center > ConstrainedBox(maxWidth: 640)` wrapper. Key property: `ConstrainedBox` with only a `maxWidth` is a **no-op on narrow (phone) screens** because the parent's tight `maxWidth` constraint already beats the widget's loose one. So phones render bit-identically to before; tablets get a centred 640 dp reading column. No `LayoutBuilder`, no `MediaQuery` branching — deliberately keeping the hotfix as close to a null-op as possible on the hot path.
+- **Wrapped every top-level screen body**:
+  - Auth: [phone_entry_screen.dart](lib/screens/auth/phone_entry_screen.dart), [password_screen.dart](lib/screens/auth/password_screen.dart), [change_password_screen.dart](lib/screens/auth/change_password_screen.dart), [forgot_password_screen.dart](lib/screens/auth/forgot_password_screen.dart)
+  - Main: [home_screen.dart](lib/screens/main/home_screen.dart), [tasks_screen.dart](lib/screens/main/tasks_screen.dart), [profile_screen.dart](lib/screens/main/profile_screen.dart)
+  - Lead + merchant: [new_lead_screen.dart](lib/screens/lead/new_lead_screen.dart), [lead_success_screen.dart](lib/screens/lead/lead_success_screen.dart), [merchant_list_screen.dart](lib/screens/merchant/merchant_list_screen.dart), [merchant_profile_screen.dart](lib/screens/merchant/merchant_profile_screen.dart)
+- **`flutter analyze` clean** (83.8s, "No issues found!").
+**Decisions:**
+- **640 dp max-width** — reading-column width, matches typography guidance for single-column forms; wider (720–800) starts looking awkward on form layouts. On a ~800 dp-wide tablet in portrait there's ~80 dp of margin on each side, which looks intentional rather than empty.
+- **Auth header stays full-width visually via colour, not width** — the auth screens' brand-coloured `AuthHeader` now also sits within the 640 dp column rather than stretching edge-to-edge. Considered letting it bleed full-width while constraining only the card below, but that requires splitting the scroll into two layers per screen and isn't worth the complexity for a hotfix. The header still looks balanced centered in 640 dp.
+- **No breakpoint logic in the widget** — a proper responsive pass (P1-15) will need `LayoutBuilder`-based adaptive layouts anyway (master/detail, 2-up grids). Adding premature breakpoint plumbing now would mean ripping it out or refactoring it when P1-15 lands. The hotfix is deliberately dumb: one constant, one centre.
+- **Deferred: tablet AVD in Patrol matrix**. P1-14's Patrol run still uses a Pixel 6 phone profile. Without tablet coverage we can regress this widget without noticing. Listed as a prerequisite in P1-15's notes so it doesn't get forgotten.
+**Backlog impact:**
+- **P1-15 added (TODO)** — full tablet master/detail refactor. Explicitly notes the hotfix as already landed, and lists the three prerequisites (tablet AVD, hardware confirmation, landscape).
+- No rows closed — this is infra for the existing pilot, not a discrete feature.
+**Blockers now:** 0 active.
+**Files changed:**
+- `lib/widgets/responsive_container.dart` (new, ~35 lines)
+- 11 screen files — added `import`, wrapped body in `ResponsiveContainer(child: ...)`. No behavioural changes.
+- `CLAUDE.md` (P1-15 row added, this entry, rotation)
+- `CLAUDE.archive.md` (rotated 2026-04-17 morning entry)
+**Pending user action:**
+1. **Confirm on a real tablet** before the next APK cut — sideload the current debug build (or wait for the next CI build) on a Galaxy Tab / iPad-class Android tablet and walk the golden path. Look for: centred 640 dp column with background colour visible on either side, no layout overflow warnings, bottom nav still full-width, merchant list rows still legible at the narrower width.
+2. **Answer the two P1-15 prerequisites** — (a) which tablet hardware are pilot reps using? (b) portrait or landscape? This unblocks scoping the proper responsive refactor.
+**Next Session:**
+1. **Pentest automation** — still the top-priority infra follow-up from the Patrol session. MobSF Docker step in [.github/workflows/build-pilot-apk.yml](.github/workflows/build-pilot-apk.yml) + RLS fuzzing script.
+2. **Two CodeRabbit follow-ups** — Security Definer hardening (`SET search_path` + `set_claim` internal-only) and RTL fix in `forgot_password_screen.dart:19`. Still unopened from 2026-04-17 afternoon.
+3. **P1-15 scoping** once tablet hardware is confirmed — draft breakpoints, decide landscape/portrait default, add tablet AVD to Patrol matrix.
+
+---
+
 ### Session: 2026-04-17 (late evening) — Patrol regression harness wired: golden-path on Android emulator
 **Duration:** ~45m
 **Focus:** Stand up the first automated regression test so the pilot pipeline has a gate in front of the signed-APK step. Previous sessions left this as the top Next Session item — user picked Patrol over Maestro/Appium.
