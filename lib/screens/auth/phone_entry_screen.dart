@@ -40,6 +40,11 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     // Strip the Egypt country code (20) if present.
     if (digits.startsWith('20') && digits.length == 12) {
       digits = '0${digits.substring(2)}';
+    } else if (digits.startsWith('200') && digits.length == 13) {
+      // '+20' followed by the FULL local number with its leading zero
+      // ('+20 01012345678') — the most common way users combine the country
+      // code with the number they memorized.
+      digits = digits.substring(2);
     } else if (digits.startsWith('1') && digits.length == 10) {
       // National number without the leading 0.
       digits = '0$digits';

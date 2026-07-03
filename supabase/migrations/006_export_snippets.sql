@@ -15,24 +15,47 @@
 
 
 -- ============================================================================
--- SNIPPET 1: All active leads (not deleted, last 90 days)
+-- SNIPPET 1: All active leads — full handoff to business unit
 -- ============================================================================
+-- Includes all merchant columns added through migrations 008 / 011 / 012 / 018:
+--   products, microfinance_amount, acceptance_device_count,
+--   avg_monthly_sales, business_address, activity_type (FK-resolved name),
+--   id_document_type + passport_number (migration 018: foreigners carry a
+--   passport and a NULL national_id — without these columns they'd export
+--   with no identity at all)
+-- Plus rep business_unit and region from public.users.
+--
+-- Default: last 90 days (cap blast radius on routine exports).
+-- For all-time: comment out the `created_at >= ...` line.
+--
 -- Copy from here ↓
 
 /*
 SELECT
-  m.name              AS "اسم التاجر",
-  m.phone             AS "رقم الموبايل",
-  m.national_id       AS "الرقم القومي",
-  m.notes             AS "ملاحظات",
-  m.status            AS "الحالة",
-  u.name              AS "اسم المندوب",
-  u.employee_id       AS "رقم الموظف",
-  m.created_at        AS "تاريخ التسجيل"
+  m.name                            AS "اسم التاجر",
+  m.phone                           AS "رقم الموبايل",
+  CASE m.id_document_type WHEN 'passport' THEN 'جواز سفر'
+                          ELSE 'رقم قومي' END AS "نوع الوثيقة",
+  m.national_id                     AS "الرقم القومي",
+  m.passport_number                 AS "رقم جواز السفر",
+  m.status                          AS "الحالة",
+  array_to_string(m.products, ', ') AS "المنتجات",
+  m.microfinance_amount             AS "مبلغ التمويل",
+  m.acceptance_device_count         AS "عدد أجهزة POS",
+  m.avg_monthly_sales               AS "متوسط المبيعات الشهرية",
+  m.business_address                AS "عنوان النشاط",
+  at.name                           AS "نوع النشاط",
+  m.notes                           AS "ملاحظات",
+  u.name                            AS "اسم المندوب",
+  u.employee_id                     AS "رقم الموظف",
+  u.business_unit                   AS "الوحدة",
+  u.region                          AS "المنطقة",
+  to_char(m.created_at AT TIME ZONE 'Africa/Cairo', 'YYYY-MM-DD HH24:MI') AS "تاريخ التسجيل"
 FROM public.merchants m
-JOIN public.users u ON u.id = m.created_by
+JOIN public.users u             ON u.id = m.created_by
+LEFT JOIN public.activity_types at ON at.id = m.activity_type_id
 WHERE m.deleted_at IS NULL
-  AND m.created_at >= now() - interval '90 days'
+  AND m.created_at >= now() - interval '90 days'   -- ← comment out for all-time
 ORDER BY m.created_at DESC;
 */
 
@@ -47,6 +70,7 @@ SELECT
   m.name              AS "اسم التاجر",
   m.phone             AS "رقم الموبايل",
   m.national_id       AS "الرقم القومي",
+  m.passport_number   AS "رقم جواز السفر",
   m.notes             AS "ملاحظات",
   m.status            AS "الحالة",
   u.name              AS "اسم المندوب",

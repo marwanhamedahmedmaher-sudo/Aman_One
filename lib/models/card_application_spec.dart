@@ -188,6 +188,10 @@ const CAStep _businessStep = CAStep(
         hint: 'يُستخرج تلقائياً من صورة البطاقة الضريبية في خطوة المستندات'),
     CAField('activity_type', 'نوع النشاط', CAFieldKind.dropdown,
         required: true, options: _activityTypes),
+    // Optional merchant information (migration 012) — the old lead form
+    // captured this; keep it flowing into merchants.avg_monthly_sales.
+    CAField('avg_monthly_sales', 'متوسط المبيعات الشهرية (جنيه)',
+        CAFieldKind.number),
     CAField('sub_specialty', 'التخصص الفرعي', CAFieldKind.text),
     CAField('branch_name', 'اسم الفرع', CAFieldKind.text),
     CAField('governorate', 'المحافظة', CAFieldKind.dropdown,

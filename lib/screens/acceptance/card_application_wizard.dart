@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../models/activity_type.dart';
 import '../../models/card_application_spec.dart';
 import '../../providers/tasks_provider.dart';
 import '../../services/analytics.dart';
@@ -22,6 +26,7 @@ class CardApplicationWizard extends StatefulWidget {
   final String? seedName;
   final String? seedNationalId;
   final String? seedMobile;
+  final String? seedNotes;
   final String? taskAssignmentId;
 
   const CardApplicationWizard({
@@ -31,6 +36,7 @@ class CardApplicationWizard extends StatefulWidget {
     this.seedName,
     this.seedNationalId,
     this.seedMobile,
+    this.seedNotes,
     this.taskAssignmentId,
   });
 
@@ -49,18 +55,33 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
   String? _error;
   EkycResult? _scan; // National-ID scan summary (Egyptian)
   PassportResult? _passportScan; // passport scan summary (foreigner)
-  final Map<String, String> _fetched = {}; // doc-OCR fetched values, by doc key
 
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String?> _dropdowns = {};
   final Map<String, DateTime?> _dates = {};
   final Map<String, bool> _images = {};
 
+  // Activity types from the admin-managed lookup table (migration 012); the
+  // spec's static list is the offline fallback. Name → id so submit can store
+  // the activity_type_id FK the profile/exports read.
+  List<ActivityType> _activityTypes = [];
+
   late final List<CAStep> _modules;
 
   // The composed flow: KYC core → product modules → deduped documents.
   // (Review is the synthetic step at index == steps length.)
-  List<CAStep> get _steps => [...kycCoreSteps, ..._modules, _documentsStep()];
+  // Memoized: build() reads this several times per frame; the only dynamic
+  // input is _track (widget.products is fixed for the wizard's lifetime).
+  List<CAStep>? _stepsCache;
+  CATrack? _stepsCacheTrack;
+  List<CAStep> get _steps {
+    if (_stepsCache == null || _stepsCacheTrack != _track) {
+      _stepsCache = [...kycCoreSteps, ..._modules, _documentsStep()];
+      _stepsCacheTrack = _track;
+    }
+    return _stepsCache!;
+  }
+
   int get _reviewIndex => _steps.length;
 
   @override
@@ -103,14 +124,46 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
       _controllers['national_id']?.text = widget.seedNationalId!;
     }
     if (widget.seedMobile != null) {
-      _controllers['merchant_mobile']?.text = widget.seedMobile!;
+      // Seeds may arrive E.164 (+2010..., cross_sell_pool has no normalization
+      // trigger) — convert to the local 01XXXXXXXXX form the validator expects.
+      _controllers['merchant_mobile']?.text = _localizePhone(widget.seedMobile!);
     }
     if (widget.seedName != null && widget.seedName!.isNotEmpty) {
       _setName(widget.seedName!);
     }
+    _fetchActivityTypes();
     Analytics.track('onboarding_opened', properties: {
       'product_count': widget.products.length,
     });
+  }
+
+  /// Converts +20 / 0020 / 20-prefixed Egyptian numbers to local 01XXXXXXXXX
+  /// form. Anything unrecognized passes through unchanged for the rep to fix.
+  String _localizePhone(String raw) {
+    var d = raw.replaceAll(RegExp(r'\D'), '');
+    if (d.startsWith('0020')) d = d.substring(4);
+    if (d.startsWith('20') && (d.length == 12 || d.length == 13)) {
+      d = d.substring(2);
+    }
+    if (d.length == 10 && d.startsWith('1')) d = '0$d';
+    return (d.length == 11 && d.startsWith('01')) ? d : raw.trim();
+  }
+
+  Future<void> _fetchActivityTypes() async {
+    try {
+      final data = await _supabase
+          .from('activity_types')
+          .select('id, name, sort_order')
+          .order('sort_order');
+      if (!mounted) return;
+      setState(() {
+        _activityTypes = (data as List)
+            .map((r) => ActivityType.fromJson(r as Map<String, dynamic>))
+            .toList();
+      });
+    } catch (_) {
+      // Offline / unmigrated: the spec's static list keeps the dropdown usable.
+    }
   }
 
   @override
@@ -269,8 +322,10 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
       if (isNid) {
         Analytics.track('onboarding_scan_started', properties: {'doc': 'national_id'});
         final result = await EkycService.instance.scanNationalId(bytes!);
-        _applyScan(result);
+        // mounted check MUST precede the controller writes in _applyScan —
+        // popping the wizard mid-scan disposes the controllers.
         if (!mounted) return;
+        _applyScan(result);
         setState(() {
           _scanningKey = null;
           _images[f.key] = true;
@@ -280,8 +335,8 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
       } else if (isPassport) {
         Analytics.track('onboarding_scan_started', properties: {'doc': 'passport'});
         final result = await EkycService.instance.scanPassport(bytes!);
-        _applyPassport(result);
         if (!mounted) return;
+        _applyPassport(result);
         setState(() {
           _scanningKey = null;
           _images[f.key] = true;
@@ -293,15 +348,14 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
         final result = f.key == 'doc_tax_card'
             ? await EkycService.instance.scanTaxCard(bytes!)
             : await EkycService.instance.scanCommercialRegister(bytes!);
+        if (!mounted) return;
         final fetched = result.fields[fetchField];
         if (fetched != null && fetched.isNotEmpty) {
           _controllers[fetchField]?.text = fetched;
         }
-        if (!mounted) return;
         setState(() {
           _scanningKey = null;
           _images[f.key] = true;
-          if (fetched != null && fetched.isNotEmpty) _fetched[f.key] = fetched;
         });
         Analytics.track('onboarding_scan_succeeded', properties: {'doc': f.key});
       } else {
@@ -339,6 +393,18 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
       if (f.kind == CAFieldKind.phone && v.isNotEmpty &&
           !(v.startsWith('01') && v.length == 11)) {
         return 'رقم الموبايل غير صحيح (${f.label})';
+      }
+      // Number fields must actually parse — tryParse in _submit would
+      // otherwise silently turn bad input into NULL and trip the migration-011
+      // CHECK constraints with only a generic error after the whole wizard.
+      if (f.kind == CAFieldKind.number && v.isNotEmpty) {
+        final n = double.tryParse(v);
+        if (n == null) {
+          return '${f.label}: أدخل أرقامًا فقط (0-9)';
+        }
+        if (f.required && n <= 0) {
+          return '${f.label}: يجب أن يكون أكبر من صفر';
+        }
       }
     }
     return null;
@@ -427,7 +493,11 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
           ? int.tryParse(_byKey('acc_device_count'))
           : null,
       'business_address': _byKey('branch_address_ar'),
-      'notes': '',
+      // Merchant-information columns (migration 012) the old form persisted:
+      'avg_monthly_sales': double.tryParse(_byKey('avg_monthly_sales')),
+      'activity_type_id': _activityTypeIdFor(_dropdowns['activity_type']),
+      // Cross-sell task context (admin-supplied lead notes) must survive.
+      'notes': widget.seedNotes ?? '',
       'status': 'lead',
     };
     if (_egyptian) {
@@ -486,6 +556,14 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
     }
   }
 
+  String? _activityTypeIdFor(String? name) {
+    if (name == null) return null;
+    for (final a in _activityTypes) {
+      if (a.name == name) return a.id;
+    }
+    return null;
+  }
+
   Future<String?> _insertMerchant(Map<String, dynamic> payload) async {
     final res = await _supabase.from('merchants').insert(payload).select('id').single();
     return res['id'] as String?;
@@ -516,6 +594,11 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
     } else if (e.message.contains('رقم القومي غير صحيح')) {
       msg = 'الرقم القومي غير صحيح';
       reason = 'invalid_nid';
+    } else if (e.code == '23514') {
+      // Migration-011 CHECKs: product detail (amount / device count) missing
+      // or inconsistent with the selected products.
+      msg = 'بيانات المنتج غير مكتملة — راجع مبلغ التمويل وعدد الأجهزة';
+      reason = 'check_violation';
     } else {
       msg = 'حدث خطأ أثناء التسجيل';
       reason = 'postgrest_other';
@@ -532,15 +615,18 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
       'product_count': widget.products.length,
     });
     // Complete the cross-sell task if this onboarding came from one.
+    // Fire-and-forget: the merchant is already saved, the call is best-effort,
+    // and awaiting it would hold the rep on the spinner for an extra network
+    // roundtrip that changes nothing they see.
     if (widget.taskAssignmentId != null && merchantId != null && mounted) {
-      try {
-        await context.read<TasksProvider>().completeTask(
-              widget.taskAssignmentId!,
-              merchantId: merchantId,
-            );
-      } catch (_) {
-        // Best-effort — the merchant is already saved.
-      }
+      final tasks = context.read<TasksProvider>();
+      unawaited(() async {
+        try {
+          await tasks.completeTask(widget.taskAssignmentId!, merchantId: merchantId);
+        } catch (_) {
+          // Best-effort — the merchant is already saved.
+        }
+      }());
     }
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -754,6 +840,13 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
         TextField(
           controller: _controllers[f.key],
           keyboardType: keyboard,
+          // Block Arabic-Indic digits, commas, etc. that double/int.tryParse
+          // can't read — the DB CHECKs need a real number, not NULL.
+          inputFormatters: f.kind == CAFieldKind.number
+              ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))]
+              : f.kind == CAFieldKind.phone
+                  ? [FilteringTextInputFormatter.digitsOnly]
+                  : null,
           maxLines: isMultiline ? 3 : 1,
           textAlign: TextAlign.right,
           style: AppTheme.inputText,
@@ -774,7 +867,11 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
           isExpanded: true,
           style: AppTheme.inputText,
           decoration: AppTheme.inputDecoration(hintText: 'اختر ${f.label}'),
-          items: f.options
+          // Activity types come from the admin-managed lookup table when
+          // reachable (so Dashboard-added types appear); spec list is fallback.
+          items: (f.key == 'activity_type' && _activityTypes.isNotEmpty
+                  ? _activityTypes.map((a) => a.name).toList()
+                  : f.options)
               .map((o) => DropdownMenuItem<String>(value: o, child: Text(o, style: AppTheme.inputText)))
               .toList(),
           onChanged: (v) => setState(() => _dropdowns[f.key] = v),
@@ -817,7 +914,11 @@ class _CardApplicationWizardState extends State<CardApplicationWizard> {
   Widget _buildImageField(CAField f) {
     final captured = _images[f.key] ?? false;
     final busy = _scanningKey == f.key;
-    final fetched = _fetched[f.key];
+    // The extracted-number chip reads the live (editable) controller — the
+    // single source of truth — so a rep's manual correction shows here too.
+    final fetchField = ocrFetchDocs[f.key];
+    final fetched =
+        (captured && fetchField != null) ? _controllers[fetchField]?.text.trim() : null;
     final scannable = f.key == 'id_front' ||
         f.key == 'passport_image' ||
         ocrFetchDocs.containsKey(f.key);

@@ -54,6 +54,9 @@ class _NewLeadScreenState extends State<NewLeadScreen> {
     final name = _nameController.text.trim();
     final nid = _nationalIdController.text.trim();
     final phone = _phoneController.text.trim();
+    // Cross-sell tasks carry admin-supplied context in the lead's notes —
+    // thread it through so the merchants row doesn't land with notes=''.
+    final notes = widget.initialLead?.notes.trim() ?? '';
     Analytics.track('onboarding_started', properties: {
       'product_count': _selected.length,
     });
@@ -64,6 +67,7 @@ class _NewLeadScreenState extends State<NewLeadScreen> {
           seedName: name.isNotEmpty ? name : null,
           seedNationalId: nid.isNotEmpty ? nid : null,
           seedMobile: phone.isNotEmpty ? phone : null,
+          seedNotes: notes.isNotEmpty ? notes : null,
           taskAssignmentId: widget.taskAssignmentId,
         ),
       ),

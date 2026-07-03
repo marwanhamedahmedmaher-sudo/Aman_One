@@ -24,12 +24,29 @@ class MerchantListProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final data = await _supabase
-          .from('merchants')
-          .select('id, name, phone, id_document_type, notes, products, microfinance_amount, acceptance_device_count, avg_monthly_sales, business_address, activity_type_id, activity_types(name), status, created_by, created_at')
-          .order('created_at', ascending: false);
+      List<dynamic> data;
+      try {
+        data = await _supabase
+            .from('merchants')
+            .select('id, name, phone, id_document_type, notes, products, microfinance_amount, acceptance_device_count, avg_monthly_sales, business_address, activity_type_id, activity_types(name), status, created_by, created_at')
+            .order('created_at', ascending: false);
+      } on PostgrestException catch (e) {
+        // Pre-migration-018 DB: id_document_type doesn't exist yet. The insert
+        // path degrades gracefully for this case (see the wizard's
+        // _isUndefinedColumn retry) — the read path must too, or reps create
+        // merchants they can never list.
+        if (e.code != '42703' &&
+            e.code != 'PGRST204' &&
+            !e.message.contains('id_document_type')) {
+          rethrow;
+        }
+        data = await _supabase
+            .from('merchants')
+            .select('id, name, phone, notes, products, microfinance_amount, acceptance_device_count, avg_monthly_sales, business_address, activity_type_id, activity_types(name), status, created_by, created_at')
+            .order('created_at', ascending: false);
+      }
 
-      _merchants = (data as List).map((row) {
+      _merchants = data.map((row) {
         final map = Map<String, dynamic>.from(row as Map<String, dynamic>);
         // Flatten Supabase foreign-table embed: activity_types(name) → activity_type_name
         final activityTypes = map.remove('activity_types');
@@ -66,59 +83,54 @@ class MerchantListProvider extends ChangeNotifier {
   }
 
   /// Reveal plaintext NID via SECURITY DEFINER RPC. Returns NID or null.
-  Future<String?> revealNationalId(String merchantId) async {
-    try {
-      final result = await _supabase.rpc(
-        'reveal_national_id',
-        params: {'p_merchant_id': merchantId},
+  Future<String?> revealNationalId(String merchantId) => _revealWithAudit(
+        merchantId,
+        rpcName: 'reveal_national_id',
+        successEvent: 'nid_revealed',
+        failEvent: 'nid_reveal_failed',
+        fallbackError: 'حدث خطأ أثناء عرض الرقم القومي',
       );
-      await Analytics.track('nid_revealed', properties: {
-        'merchant_id': merchantId,
-      });
-      return result as String?;
-    } on PostgrestException catch (e) {
-      _error = e.message;
-      notifyListeners();
-      await Analytics.track('nid_reveal_failed', properties: {
-        'merchant_id': merchantId,
-        'pg_code': e.code,
-      });
-      return null;
-    } catch (_) {
-      _error = 'حدث خطأ أثناء عرض الرقم القومي';
-      notifyListeners();
-      await Analytics.track('nid_reveal_failed', properties: {
-        'merchant_id': merchantId,
-        'pg_code': null,
-      });
-      return null;
-    }
-  }
 
   /// Reveal a foreigner's plaintext passport via SECURITY DEFINER RPC
-  /// (migration 019). Mirror of [revealNationalId]. Returns passport or null.
-  Future<String?> revealPassportNumber(String merchantId) async {
+  /// (migration 019). Returns passport or null.
+  Future<String?> revealPassportNumber(String merchantId) => _revealWithAudit(
+        merchantId,
+        rpcName: 'reveal_passport_number',
+        successEvent: 'passport_revealed',
+        failEvent: 'passport_reveal_failed',
+        fallbackError: 'حدث خطأ أثناء عرض جواز السفر',
+      );
+
+  /// Shared reveal-with-audit call: one place for the RPC/error/analytics
+  /// shape so the NID and passport paths cannot drift apart.
+  Future<String?> _revealWithAudit(
+    String merchantId, {
+    required String rpcName,
+    required String successEvent,
+    required String failEvent,
+    required String fallbackError,
+  }) async {
     try {
       final result = await _supabase.rpc(
-        'reveal_passport_number',
+        rpcName,
         params: {'p_merchant_id': merchantId},
       );
-      await Analytics.track('passport_revealed', properties: {
+      await Analytics.track(successEvent, properties: {
         'merchant_id': merchantId,
       });
       return result as String?;
     } on PostgrestException catch (e) {
       _error = e.message;
       notifyListeners();
-      await Analytics.track('passport_reveal_failed', properties: {
+      await Analytics.track(failEvent, properties: {
         'merchant_id': merchantId,
         'pg_code': e.code,
       });
       return null;
     } catch (_) {
-      _error = 'حدث خطأ أثناء عرض جواز السفر';
+      _error = fallbackError;
       notifyListeners();
-      await Analytics.track('passport_reveal_failed', properties: {
+      await Analytics.track(failEvent, properties: {
         'merchant_id': merchantId,
         'pg_code': null,
       });
