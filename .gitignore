@@ -50,6 +50,21 @@ app.*.map.json
 run_dev.sh
 scripts/provision.log
 
+# One-shot batch rosters (embedded rep data, per-cohort)
+scripts/provision_reps_batch.sh
+scripts/reset_reps_batch.sh
+
+# Pilot rep temp-password sheets (plaintext passwords — distribute, then delete)
+docs/pilot_reps_*.xlsx
+docs/pilot_reps_*.tsv
+
+# Merchant lead exports (plaintext NIDs — hand off to business unit, then delete)
+docs/merchants_export_*.xlsx
+docs/merchants_export_*.tsv
+
+# Office owner-lock files (~$ prefix escapes the globs above; embed local username)
+~$*
+
 # Throwaway test harness (project-specific, not portable)
 scripts/test/
 
