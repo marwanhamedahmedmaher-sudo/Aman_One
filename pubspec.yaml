@@ -1,7 +1,7 @@
 name: aman_sales_app
 description: "Aman One - منصة تسجيل التجار"
 publish_to: 'none'
-version: 1.2.2+6
+version: 1.2.3+7
 
 environment:
   sdk: ^3.11.4
