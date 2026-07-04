@@ -112,10 +112,6 @@
           <input id="to" type="date" />
         </div>
       </div>
-      <div class="row">
-        <input id="all" type="checkbox" />
-        <label for="all" style="margin:0;">كل التواريخ (تصدير كل الزيارات)</label>
-      </div>
 
       <button id="exportBtn" class="full">تنزيل ملف Excel</button>
       <div id="estatus"></div>
@@ -306,17 +302,14 @@
   $('exportBtn').addEventListener('click', async () => {
     if (!TOKEN) return status('estatus', 'انتهت الجلسة — سجّل الدخول مرة أخرى.', 'err');
 
-    const all = $('all').checked;
     const from = $('from').value, to = $('to').value;
-    if (!all) {
-      if (!from || !to) return status('estatus', 'حدد تاريخ البداية والنهاية أو اختر «كل التواريخ».', 'err');
-      if (from > to) return status('estatus', 'تاريخ البداية بعد تاريخ النهاية — راجع الفترة.', 'err');
-    }
+    if (!from || !to) return status('estatus', 'حدد تاريخ البداية والنهاية.', 'err');
+    if (from > to) return status('estatus', 'تاريخ البداية بعد تاريخ النهاية — راجع الفترة.', 'err');
 
     $('exportBtn').disabled = true;
     try {
       status('estatus', 'جارٍ تجهيز ملف Excel (قد يستغرق لحظات مع الصور)…');
-      const q = all ? '' : `?from=${from}&to=${to}`;
+      const q = `?from=${from}&to=${to}`;
       const res = await fetch(`${SUPABASE_URL}/functions/v1/export-visits-xlsx${q}`, {
         headers: { 'apikey': ANON, 'Authorization': `Bearer ${TOKEN}` },
       });
@@ -333,7 +326,7 @@
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `aman-visits-${all ? 'all' : `${from}_${to}`}.xlsx`;
+      a.download = `aman-visits-${from}_${to}.xlsx`;
       a.click();
       URL.revokeObjectURL(a.href);
       status('estatus', 'تم التنزيل ✓', 'ok');
