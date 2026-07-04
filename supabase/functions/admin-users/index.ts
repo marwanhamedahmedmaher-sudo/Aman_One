@@ -156,7 +156,7 @@ Deno.serve(async (req: Request) => {
 
       // ------------------------------------------------------------ create_rep
       case 'create_rep': {
-        const name = (body.name ?? '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
+        const name = (body.name ?? '').replace(/\s+/g, ' ').trim();
         const employeeId = (body.employee_id ?? '').trim();
         const region = (body.region ?? '').trim();
         const businessUnit = (body.business_unit ?? '').trim() || 'Outdoor Retail';
