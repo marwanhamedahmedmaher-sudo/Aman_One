@@ -198,14 +198,16 @@
 
       // Identity + role gate — same pattern as the visit-export page.
       const ures = await fetch(
-        `${SUPABASE_URL}/rest/v1/users?id=eq.${aj.user.id}&select=name,role`,
+        `${SUPABASE_URL}/rest/v1/users?id=eq.${aj.user.id}&select=name,role,business_unit`,
         { headers: { 'apikey': ANON, 'Authorization': `Bearer ${aj.access_token}` } },
       );
       const me = ures.ok ? (await ures.json())[0] : null;
       if (!me) throw new Error('تعذّر التحقق من هوية الحساب — أعد المحاولة.');
 
       const privileged = me.role === 'supervisor' || me.role === 'admin';
-      $('who').textContent = `تم تسجيل الدخول: ${me.name} — ${ROLE_AR[me.role] || me.role}`;
+      // A supervisor is scoped server-side to their own business unit — show it.
+      const scopeNote = me.role === 'supervisor' ? ` — وحدة: ${me.business_unit}` : '';
+      $('who').textContent = `تم تسجيل الدخول: ${me.name} — ${ROLE_AR[me.role] || me.role}${scopeNote}`;
       $('who').className = privileged ? 'good' : 'bad';
       if (!privileged) {
         throw new Error(
@@ -215,7 +217,15 @@
       }
 
       TOKEN = aj.access_token;
-      $('who2').textContent = `تم تسجيل الدخول: ${me.name} — ${ROLE_AR[me.role] || me.role}`;
+      $('who2').textContent = `تم تسجيل الدخول: ${me.name} — ${ROLE_AR[me.role] || me.role}${scopeNote}`;
+      // Create-form unit: supervisors always provision into their own unit
+      // (enforced server-side too); only admin can type a different one.
+      $('cUnit').value = me.business_unit || 'Outdoor Retail';
+      if (me.role === 'supervisor') {
+        $('cUnit').readOnly = true;
+        $('cUnit').style.background = '#F2F4F7';
+        $('cUnit').title = 'المشرف يضيف مناديب داخل وحدته فقط';
+      }
       status('status', '');
       $('login').style.display = 'none';
       $('portal').style.display = 'block';

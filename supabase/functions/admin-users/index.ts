@@ -16,6 +16,10 @@
 // Guardrails:
 //   * Targets must be role='sales_rep' — the portal can never touch admin or
 //     supervisor accounts (no privilege escalation, no self-lockout).
+//   * A SUPERVISOR is scoped to their own business_unit: list shows only
+//     same-unit users, create_rep always lands in the supervisor's unit
+//     (any client-sent business_unit is ignored), and mutations against a
+//     rep from another unit are refused. role='admin' is unrestricted.
 //   * create_rep always provisions role='sales_rep', must_change_password=true,
 //     phone_confirm=true (no SMS). Region restricted to the roster vocabulary.
 //   * Suspend = Admin API ban + users.status='suspended' (there is no DB
@@ -107,12 +111,14 @@ Deno.serve(async (req: Request) => {
 
   const { data: me } = await admin
     .from('users')
-    .select('name, role, status')
+    .select('name, role, status, business_unit')
     .eq('id', caller.id)
     .single();
   if (!me || !['supervisor', 'admin'].includes(me.role) || me.status !== 'active') {
     return fail(403, 'forbidden', 'هذا الحساب غير مصرّح له باستخدام بوابة الإدارة.');
   }
+  // Supervisor → confined to their own business unit; admin → all units.
+  const buScope: string | null = me.role === 'supervisor' ? me.business_unit : null;
 
   const body = await req.json().catch(() => ({}));
   const action = body?.action;
@@ -130,17 +136,20 @@ Deno.serve(async (req: Request) => {
     if (error) console.error('audit_write_failed', auditAction, targetId, error.message);
   };
 
-  // Load a mutation target and enforce the sales_rep-only rule.
+  // Load a mutation target and enforce the sales_rep-only + same-unit rules.
   async function getTarget(id: string) {
     if (!id || typeof id !== 'string') return { error: fail(400, 'bad_request', 'user_id مطلوب.') };
     const { data: target } = await admin
       .from('users')
-      .select('id, name, phone, employee_id, role, status')
+      .select('id, name, phone, employee_id, business_unit, role, status')
       .eq('id', id)
       .single();
     if (!target) return { error: fail(404, 'not_found', 'المستخدم غير موجود.') };
     if (target.role !== 'sales_rep') {
       return { error: fail(403, 'forbidden', 'لا يمكن تعديل حسابات المشرفين أو مسؤولي النظام من هذه البوابة.') };
+    }
+    if (buScope && target.business_unit !== buScope) {
+      return { error: fail(403, 'forbidden', 'هذا المندوب يتبع وحدة عمل أخرى — يمكنك إدارة مناديب وحدتك فقط.') };
     }
     return { target };
   }
@@ -149,11 +158,13 @@ Deno.serve(async (req: Request) => {
     switch (action) {
       // ------------------------------------------------------------------ list
       case 'list': {
-        const { data: users, error } = await admin
+        let lq = admin
           .from('users')
           .select('id, name, phone, employee_id, business_unit, region, role, status, must_change_password, created_at')
           .order('name', { ascending: true })
           .limit(500);
+        if (buScope) lq = lq.eq('business_unit', buScope); // supervisor → own unit only
+        const { data: users, error } = await lq;
         if (error) return fail(500, 'query_failed', error.message);
         return json({ users });
       }
@@ -165,7 +176,9 @@ Deno.serve(async (req: Request) => {
         const name = String(body.name ?? '').replace(/\s+/g, ' ').trim();
         const employeeId = String(body.employee_id ?? '').trim();
         const region = String(body.region ?? '').trim();
-        const businessUnit = String(body.business_unit ?? '').trim() || 'Outdoor Retail';
+        // Supervisor always provisions into their OWN unit — the client-sent
+        // value is ignored. Admin may set any unit (defaults to Outdoor Retail).
+        const businessUnit = buScope ?? (String(body.business_unit ?? '').trim() || 'Outdoor Retail');
 
         if (name.length < 3) return fail(400, 'bad_request', 'أدخل اسم المندوب كاملًا.');
         if (!employeeId) return fail(400, 'bad_request', 'الرقم الوظيفي مطلوب.');
