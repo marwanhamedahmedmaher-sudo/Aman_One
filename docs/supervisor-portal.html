@@ -23,6 +23,8 @@
     border-radius: 10px; font-size: 15px; background: #fff; }
   .row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
   .row input { width: auto; height: auto; }
+  .dates { display: flex; gap: 12px; }
+  .dates > div { flex: 1; }
   button { height: 44px; padding: 0 18px; background: var(--teal); color: #fff;
     border: 0; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: .6; cursor: default; }
@@ -98,10 +100,18 @@
 
     <!-- -------------------- Tab: Visit export -------------------- -->
     <div class="tabpanel active" id="tab-export">
-      <p class="sub">اختر التاريخ ثم نزّل ملف Excel — الصور مدمجة داخل الجدول.</p>
+      <p class="sub">اختر الفترة ثم نزّل ملف Excel — الصور مدمجة داخل الجدول.</p>
 
-      <label>التاريخ</label>
-      <input id="date" type="date" />
+      <div class="dates">
+        <div>
+          <label>من تاريخ</label>
+          <input id="from" type="date" />
+        </div>
+        <div>
+          <label>إلى تاريخ</label>
+          <input id="to" type="date" />
+        </div>
+      </div>
       <div class="row">
         <input id="all" type="checkbox" />
         <label for="all" style="margin:0;">كل التواريخ (تصدير كل الزيارات)</label>
@@ -196,7 +206,9 @@
   let usersLoaded = false; // admin list is fetched lazily on first tab open
 
   const status = (el, msg, cls='') => { const s = $(el); s.textContent = msg; s.className = cls; };
-  $('date').value = new Date(Date.now() + 2*3600*1000).toISOString().slice(0,10); // Cairo today
+  const today = new Date(Date.now() + 2*3600*1000).toISOString().slice(0,10); // Cairo today
+  $('from').value = today;
+  $('to').value = today;
 
   async function api(payload) {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
@@ -293,11 +305,18 @@
   // ------------------------------------------------------------ visit export
   $('exportBtn').addEventListener('click', async () => {
     if (!TOKEN) return status('estatus', 'انتهت الجلسة — سجّل الدخول مرة أخرى.', 'err');
+
+    const all = $('all').checked;
+    const from = $('from').value, to = $('to').value;
+    if (!all) {
+      if (!from || !to) return status('estatus', 'حدد تاريخ البداية والنهاية أو اختر «كل التواريخ».', 'err');
+      if (from > to) return status('estatus', 'تاريخ البداية بعد تاريخ النهاية — راجع الفترة.', 'err');
+    }
+
     $('exportBtn').disabled = true;
     try {
       status('estatus', 'جارٍ تجهيز ملف Excel (قد يستغرق لحظات مع الصور)…');
-      const all = $('all').checked;
-      const q = all ? '' : `?date=${$('date').value}`;
+      const q = all ? '' : `?from=${from}&to=${to}`;
       const res = await fetch(`${SUPABASE_URL}/functions/v1/export-visits-xlsx${q}`, {
         headers: { 'apikey': ANON, 'Authorization': `Bearer ${TOKEN}` },
       });
@@ -314,7 +333,7 @@
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `aman-visits-${all ? 'all' : $('date').value}.xlsx`;
+      a.download = `aman-visits-${all ? 'all' : `${from}_${to}`}.xlsx`;
       a.click();
       URL.revokeObjectURL(a.href);
       status('estatus', 'تم التنزيل ✓', 'ok');
