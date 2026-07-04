@@ -73,8 +73,8 @@ function genPassword(): string {
 
 // Normalize an Egyptian mobile number to E.164 (+201XXXXXXXXX) or null.
 // Accepts local 01…, 201…, +201…, 00201…, Arabic-Indic digits, spaces/dashes.
-function normalizePhone(raw: string): string | null {
-  let p = (raw ?? '')
+function normalizePhone(raw: unknown): string | null {
+  let p = String(raw ?? '')
     .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
     .replace(/[\s\-().]/g, '');
@@ -117,14 +117,18 @@ Deno.serve(async (req: Request) => {
   const body = await req.json().catch(() => ({}));
   const action = body?.action;
 
-  const audit = (auditAction: string, targetId: string | null, details: Record<string, unknown>) =>
-    admin.from('audit_log').insert({
+  // The mutation has already succeeded when this runs, so an audit failure
+  // must not fail the request — but it must be loud in the function logs.
+  const audit = async (auditAction: string, targetId: string | null, details: Record<string, unknown>) => {
+    const { error } = await admin.from('audit_log').insert({
       actor_id: caller.id,
       action: auditAction,
       table_name: 'users',
       record_id: targetId,
       new_data: { ...details, via: 'admin-portal' },
     });
+    if (error) console.error('audit_write_failed', auditAction, targetId, error.message);
+  };
 
   // Load a mutation target and enforce the sales_rep-only rule.
   async function getTarget(id: string) {
@@ -156,10 +160,12 @@ Deno.serve(async (req: Request) => {
 
       // ------------------------------------------------------------ create_rep
       case 'create_rep': {
-        const name = (body.name ?? '').replace(/\s+/g, ' ').trim();
-        const employeeId = (body.employee_id ?? '').trim();
-        const region = (body.region ?? '').trim();
-        const businessUnit = (body.business_unit ?? '').trim() || 'Outdoor Retail';
+        // String() first: a non-string JSON value must land in the 400 paths
+        // below, not throw and surface as a generic 500.
+        const name = String(body.name ?? '').replace(/\s+/g, ' ').trim();
+        const employeeId = String(body.employee_id ?? '').trim();
+        const region = String(body.region ?? '').trim();
+        const businessUnit = String(body.business_unit ?? '').trim() || 'Outdoor Retail';
 
         if (name.length < 3) return fail(400, 'bad_request', 'أدخل اسم المندوب كاملًا.');
         if (!employeeId) return fail(400, 'bad_request', 'الرقم الوظيفي مطلوب.');
