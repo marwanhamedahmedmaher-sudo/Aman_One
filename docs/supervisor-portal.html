@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>بوابة المشرف — أمان</title>
+<!-- Frame-buster: GitHub Pages can't send X-Frame-Options, so refuse to run inside an iframe. -->
+<script>if (self !== top) { top.location = self.location; }</script>
+<style>
+  :root { --teal:#00AEC7; --navy:#002A47; --bg:#F2F4F7; --border:#E0E6ED; --red:#AB2328; --green:#0F6E56; }
+  * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; }
+  body { background: var(--bg); margin: 0; padding: 24px; color: var(--navy); }
+  .card { max-width: 460px; margin: 24px auto; background: #fff; border: 1px solid var(--border);
+          border-radius: 14px; padding: 24px; }
+  .wide { max-width: 980px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  p.sub { margin: 0 0 20px; color: #5F5E5A; font-size: 14px; }
+  label { display: block; font-size: 13px; margin: 14px 0 6px; color: #5F5E5A; }
+  input[type=text], input[type=password], input[type=date], select {
+    width: 100%; height: 42px; padding: 0 12px; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 15px; background: #fff; }
+  .row { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .row input { width: auto; height: auto; }
+  .dates { display: flex; gap: 12px; }
+  .dates > div { flex: 1; }
+  button { height: 44px; padding: 0 18px; background: var(--teal); color: #fff;
+    border: 0; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  button.secondary { background: #fff; color: var(--navy); border: 1px solid var(--border); }
+  button.danger { background: var(--red); }
+  button.small { height: 32px; padding: 0 12px; font-size: 13px; }
+  .full { width: 100%; margin-top: 20px; }
+  #status, #estatus, #pstatus { margin-top: 14px; font-size: 14px; min-height: 20px; }
+  .ok { color: var(--green); } .err { color: var(--red); }
+  #who { display: none; margin-top: 16px; padding: 10px 12px; border-radius: 10px;
+         font-size: 14px; font-weight: 600; }
+  #who.good { display: block; background: #E6F4EF; color: var(--green); border: 1px solid #BFE3D6; }
+  #who.bad  { display: block; background: #FBEAEA; color: var(--red); border: 1px solid #F0C8C9; }
+  #portal { display: none; }
+  /* Tabs */
+  .tabs { display: flex; gap: 6px; border-bottom: 2px solid var(--border); margin: 18px 0 8px; }
+  .tab { height: 42px; background: transparent; color: #5F5E5A; border: 0; border-bottom: 2px solid transparent;
+         border-radius: 0; margin-bottom: -2px; font-size: 15px; font-weight: 600; }
+  .tab.active { color: var(--navy); border-bottom-color: var(--teal); }
+  .tabpanel { display: none; }
+  .tabpanel.active { display: block; }
+  /* Admin table + panels */
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 16px 0; }
+  .toolbar input { flex: 1; min-width: 200px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 9px 8px; border-bottom: 1px solid var(--border); text-align: right; }
+  th { color: #5F5E5A; font-size: 12px; font-weight: 600; background: #FAFBFC; position: sticky; top: 0; }
+  .tablewrap { overflow-x: auto; max-height: 60vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge.active { background: #E6F4EF; color: var(--green); }
+  .badge.suspended { background: #FBEAEA; color: var(--red); }
+  .badge.role { background: #EAF6F9; color: #00758A; }
+  .actions { display: flex; gap: 6px; }
+  .panel { border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-top: 16px; background: #FAFBFC; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+  #pwresult { display: none; border: 2px solid var(--teal); background: #F0FBFD; border-radius: 12px;
+              padding: 18px; margin-top: 16px; }
+  #pwvalue { font-family: Consolas, monospace; font-size: 22px; letter-spacing: 1px; direction: ltr;
+             text-align: center; background: #fff; border: 1px dashed var(--teal); border-radius: 8px;
+             padding: 10px; margin: 10px 0; user-select: all; }
+  .warn { color: var(--red); font-size: 13px; font-weight: 600; }
+  .muted { color: #5F5E5A; font-size: 13px; }
+</style>
+</head>
+<body>
+
+  <!-- ============================ Login ============================ -->
+  <div class="card" id="login">
+    <h1>بوابة المشرف — أمان</h1>
+    <p class="sub">سجّل الدخول بحساب المشرف للوصول إلى تقارير الزيارات وإدارة حسابات المناديب.</p>
+
+    <label>رقم الموبايل (المشرف)</label>
+    <input id="phone" type="text" inputmode="tel" placeholder="+201234567890" autocomplete="off" />
+
+    <label>كلمة المرور</label>
+    <input id="password" type="password" placeholder="••••••••" autocomplete="new-password" />
+
+    <button id="go" class="full">تسجيل الدخول</button>
+    <div id="who"></div>
+    <div id="status"></div>
+  </div>
+
+  <!-- ============================ Portal ============================ -->
+  <div class="card wide" id="portal">
+    <h1>بوابة المشرف</h1>
+    <div id="who2" style="margin:8px 0 0; font-size:14px; color:#5F5E5A;"></div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="export">تقارير الزيارات</button>
+      <button class="tab" data-tab="admin">إدارة المناديب</button>
+    </div>
+
+    <!-- -------------------- Tab: Visit export -------------------- -->
+    <div class="tabpanel active" id="tab-export">
+      <p class="sub">اختر الفترة ثم نزّل ملف Excel — الصور مدمجة داخل الجدول.</p>
+
+      <div class="dates">
+        <div>
+          <label>من تاريخ</label>
+          <input id="from" type="date" />
+        </div>
+        <div>
+          <label>إلى تاريخ</label>
+          <input id="to" type="date" />
+        </div>
+      </div>
+      <div class="row">
+        <input id="all" type="checkbox" />
+        <label for="all" style="margin:0;">كل التواريخ (تصدير كل الزيارات)</label>
+      </div>
+
+      <button id="exportBtn" class="full">تنزيل ملف Excel</button>
+      <div id="estatus"></div>
+    </div>
+
+    <!-- -------------------- Tab: Rep management -------------------- -->
+    <div class="tabpanel" id="tab-admin">
+      <div class="toolbar">
+        <input id="search" type="text" placeholder="بحث بالاسم أو رقم الموبايل أو الرقم الوظيفي…" autocomplete="off" />
+        <button id="addBtn">+ إضافة مندوب جديد</button>
+        <button id="refreshBtn" class="secondary">تحديث</button>
+      </div>
+
+      <!-- Create-rep form -->
+      <div class="panel" id="createPanel" style="display:none;">
+        <h2>إضافة مندوب جديد</h2>
+        <div class="grid2">
+          <div>
+            <label>الاسم الكامل</label>
+            <input id="cName" type="text" autocomplete="off" />
+          </div>
+          <div>
+            <label>رقم الموبايل</label>
+            <input id="cPhone" type="text" inputmode="tel" placeholder="01012345678" autocomplete="off" />
+          </div>
+          <div>
+            <label>الرقم الوظيفي</label>
+            <input id="cEmp" type="text" autocomplete="off" />
+          </div>
+          <div>
+            <label>المنطقة</label>
+            <select id="cRegion">
+              <option value="Greater Cairo">القاهرة الكبرى (Greater Cairo)</option>
+              <option value="Delta">الدلتا (Delta)</option>
+              <option value="Upper Egypt">الصعيد (Upper Egypt)</option>
+            </select>
+          </div>
+          <div>
+            <label>وحدة العمل</label>
+            <input id="cUnit" type="text" value="Outdoor Retail" autocomplete="off" />
+          </div>
+        </div>
+        <div class="toolbar" style="margin-bottom:0;">
+          <button id="createBtn">إنشاء الحساب</button>
+          <button id="cancelCreate" class="secondary">إلغاء</button>
+        </div>
+      </div>
+
+      <!-- One-time temp-password reveal -->
+      <div id="pwresult">
+        <h2 id="pwtitle"></h2>
+        <div class="muted" id="pwmeta"></div>
+        <div id="pwvalue"></div>
+        <div class="toolbar" style="margin:0;">
+          <button id="copyPw" class="small">نسخ كلمة المرور</button>
+          <button id="closePw" class="small secondary">إغلاق</button>
+        </div>
+        <p class="warn">أرسل كلمة المرور للمندوب الآن عبر واتساب أو الإيميل — لن تظهر مرة أخرى بعد إغلاق هذه النافذة.</p>
+        <p class="muted">سيُطلب من المندوب تغيير كلمة المرور عند أول تسجيل دخول.</p>
+      </div>
+
+      <div class="tablewrap" style="margin-top:16px;">
+        <table>
+          <thead>
+            <tr>
+              <th>الاسم</th><th>رقم الموبايل</th><th>الرقم الوظيفي</th><th>المنطقة</th>
+              <th>الحالة</th><th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div id="pstatus"></div>
+    </div>
+  </div>
+
+<script>
+  const SUPABASE_URL = 'https://yflwudkmhqwoscipscbb.supabase.co';
+  const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmbHd1ZGttaHF3b3NjaXBzY2JiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNzM4NTMsImV4cCI6MjA5MTk0OTg1M30.141uW5uriJUKDNJnQ6RYyo2dasWVQy4FUbqyKUBZ48U';
+
+  const $ = (id) => document.getElementById(id);
+  const ROLE_AR = { supervisor: 'مشرف', admin: 'مسؤول النظام', sales_rep: 'مندوب مبيعات' };
+  const REGION_AR = { 'Greater Cairo': 'القاهرة الكبرى', 'Delta': 'الدلتا', 'Upper Egypt': 'الصعيد',
+                      'Cairo': 'القاهرة', 'All': 'الكل' };
+
+  let TOKEN = null;
+  let USERS = [];
+  let usersLoaded = false; // admin list is fetched lazily on first tab open
+
+  const status = (el, msg, cls='') => { const s = $(el); s.textContent = msg; s.className = cls; };
+  const today = new Date(Date.now() + 2*3600*1000).toISOString().slice(0,10); // Cairo today
+  $('from').value = today;
+  $('to').value = today;
+
+  async function api(payload) {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-users`, {
+      method: 'POST',
+      headers: { 'apikey': ANON, 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      TOKEN = null;
+      $('portal').style.display = 'none';
+      $('login').style.display = 'block';
+      status('status', 'انتهت الجلسة — سجّل الدخول مرة أخرى.', 'err');
+      throw new Error('انتهت الجلسة — سجّل الدخول مرة أخرى.');
+    }
+    if (!res.ok) throw new Error(j.detail || j.error || `خطأ ${res.status}`);
+    return j;
+  }
+
+  // ------------------------------------------------------------------ login
+  $('go').addEventListener('click', async () => {
+    const phone = $('phone').value.trim();
+    const password = $('password').value;
+    if (!phone || !password) return status('status', 'أدخل رقم الموبايل وكلمة المرور.', 'err');
+
+    $('go').disabled = true;
+    $('who').className = ''; // hide any stale identity banner
+    try {
+      status('status', 'جارٍ تسجيل الدخول…');
+      const auth = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        method: 'POST',
+        headers: { 'apikey': ANON, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, password }),
+      });
+      const aj = await auth.json();
+      if (!auth.ok || !aj.access_token) throw new Error(aj.error_description || aj.msg || 'فشل تسجيل الدخول');
+
+      // Identity + role gate: show WHO logged in; only supervisor/admin may proceed.
+      // Guards against browser autofill silently logging in as a rep → empty sheet / denied portal.
+      status('status', 'جارٍ التحقق من الحساب…');
+      const ures = await fetch(
+        `${SUPABASE_URL}/rest/v1/users?id=eq.${aj.user.id}&select=name,role,business_unit`,
+        { headers: { 'apikey': ANON, 'Authorization': `Bearer ${aj.access_token}` } },
+      );
+      const me = ures.ok ? (await ures.json())[0] : null;
+      if (!me) throw new Error('تعذّر التحقق من هوية الحساب — أعد المحاولة.');
+
+      const privileged = me.role === 'supervisor' || me.role === 'admin';
+      // Supervisors are scoped server-side to their own business unit — show it.
+      const scopeNote = me.role === 'supervisor' ? ` — وحدة: ${me.business_unit}` : '';
+      const banner = `تم تسجيل الدخول: ${me.name} — ${ROLE_AR[me.role] || me.role}${scopeNote}`;
+      $('who').textContent = banner;
+      $('who').className = privileged ? 'good' : 'bad';
+      if (!privileged) {
+        throw new Error(
+          'هذا الحساب مندوب مبيعات وليس مشرفًا — البوابة متاحة لحساب المشرف فقط. ' +
+          'غالبًا ملأ المتصفح بيانات دخول قديمة تلقائيًا؛ امسح الخانتين وأدخل رقم المشرف وكلمة مروره يدويًا.'
+        );
+      }
+
+      TOKEN = aj.access_token;
+      usersLoaded = false;
+      $('who2').textContent = banner;
+      // Create-form unit: supervisors always provision into their own unit
+      // (enforced server-side too); only admin can type a different one.
+      $('cUnit').value = me.business_unit || 'Outdoor Retail';
+      if (me.role === 'supervisor') {
+        $('cUnit').readOnly = true;
+        $('cUnit').style.background = '#F2F4F7';
+        $('cUnit').title = 'المشرف يضيف مناديب داخل وحدته فقط';
+      } else {
+        $('cUnit').readOnly = false;
+        $('cUnit').style.background = '#fff';
+      }
+      status('status', '');
+      $('login').style.display = 'none';
+      $('portal').style.display = 'block';
+      switchTab('export'); // default view — no admin-users call until the admin tab is opened
+    } catch (e) {
+      status('status', e.message || 'حدث خطأ', 'err');
+    } finally {
+      $('go').disabled = false;
+    }
+  });
+
+  // ------------------------------------------------------------------- tabs
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.tabpanel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
+    if (name === 'admin' && !usersLoaded) loadUsers();
+  }
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+  // ------------------------------------------------------------ visit export
+  $('exportBtn').addEventListener('click', async () => {
+    if (!TOKEN) return status('estatus', 'انتهت الجلسة — سجّل الدخول مرة أخرى.', 'err');
+
+    const all = $('all').checked;
+    const from = $('from').value, to = $('to').value;
+    if (!all) {
+      if (!from || !to) return status('estatus', 'حدد تاريخ البداية والنهاية أو اختر «كل التواريخ».', 'err');
+      if (from > to) return status('estatus', 'تاريخ البداية بعد تاريخ النهاية — راجع الفترة.', 'err');
+    }
+
+    $('exportBtn').disabled = true;
+    try {
+      status('estatus', 'جارٍ تجهيز ملف Excel (قد يستغرق لحظات مع الصور)…');
+      const q = all ? '' : `?from=${from}&to=${to}`;
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/export-visits-xlsx${q}`, {
+        headers: { 'apikey': ANON, 'Authorization': `Bearer ${TOKEN}` },
+      });
+      if (res.status === 401) {
+        TOKEN = null;
+        $('portal').style.display = 'none';
+        $('login').style.display = 'block';
+        return status('status', 'انتهت الجلسة — سجّل الدخول مرة أخرى.', 'err');
+      }
+      if (!res.ok) {
+        const ej = await res.json().catch(() => ({}));
+        throw new Error(ej.detail || ej.error || `خطأ ${res.status}`);
+      }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `aman-visits-${all ? 'all' : `${from}_${to}`}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      status('estatus', 'تم التنزيل ✓', 'ok');
+    } catch (e) {
+      status('estatus', e.message || 'حدث خطأ', 'err');
+    } finally {
+      $('exportBtn').disabled = false;
+    }
+  });
+
+  // ------------------------------------------------------------- users table
+  async function loadUsers() {
+    status('pstatus', 'جارٍ تحميل قائمة المستخدمين…');
+    try {
+      const j = await api({ action: 'list' });
+      USERS = j.users || [];
+      usersLoaded = true;
+      renderRows();
+      status('pstatus', `${USERS.length} مستخدم`, 'ok');
+    } catch (e) {
+      status('pstatus', e.message, 'err');
+    }
+  }
+
+  function renderRows() {
+    const q = $('search').value.trim().toLowerCase();
+    const tbody = $('rows');
+    tbody.textContent = '';
+    for (const u of USERS) {
+      if (q && !(`${u.name} ${u.phone} ${u.employee_id}`.toLowerCase().includes(q))) continue;
+      const tr = document.createElement('tr');
+
+      const td = (txt) => { const c = document.createElement('td'); c.textContent = txt ?? ''; return c; };
+      tr.appendChild(td(u.name));
+      const phoneTd = td(u.phone); phoneTd.style.direction = 'ltr'; phoneTd.style.textAlign = 'right';
+      tr.appendChild(phoneTd);
+      tr.appendChild(td(u.employee_id));
+      tr.appendChild(td(REGION_AR[u.region] || u.region));
+
+      const st = document.createElement('td');
+      if (u.role !== 'sales_rep') {
+        const b = document.createElement('span');
+        b.className = 'badge role'; b.textContent = ROLE_AR[u.role] || u.role;
+        st.appendChild(b);
+      } else {
+        const b = document.createElement('span');
+        b.className = `badge ${u.status}`;
+        b.textContent = u.status === 'active' ? 'نشط' : 'موقوف';
+        st.appendChild(b);
+      }
+      tr.appendChild(st);
+
+      const act = document.createElement('td');
+      if (u.role === 'sales_rep') {
+        const wrap = document.createElement('div');
+        wrap.className = 'actions';
+
+        const tgl = document.createElement('button');
+        tgl.className = `small ${u.status === 'active' ? 'danger' : ''}`;
+        tgl.textContent = u.status === 'active' ? 'إيقاف' : 'تفعيل';
+        tgl.addEventListener('click', () => toggleStatus(u));
+        wrap.appendChild(tgl);
+
+        const rst = document.createElement('button');
+        rst.className = 'small secondary';
+        rst.textContent = 'إعادة تعيين كلمة المرور';
+        rst.addEventListener('click', () => resetPassword(u));
+        wrap.appendChild(rst);
+
+        act.appendChild(wrap);
+      }
+      tr.appendChild(act);
+      tbody.appendChild(tr);
+    }
+  }
+  $('search').addEventListener('input', renderRows);
+  $('refreshBtn').addEventListener('click', loadUsers);
+
+  // ---------------------------------------------------------------- actions
+  async function toggleStatus(u) {
+    const suspending = u.status === 'active';
+    const q = suspending
+      ? `إيقاف حساب «${u.name}»؟\nلن يستطيع تسجيل الدخول حتى يُعاد تفعيله.`
+      : `إعادة تفعيل حساب «${u.name}»؟`;
+    if (!confirm(q)) return;
+    status('pstatus', 'جارٍ التنفيذ…');
+    try {
+      await api({ action: suspending ? 'suspend' : 'reactivate', user_id: u.id });
+      await loadUsers();
+      status('pstatus', suspending ? `تم إيقاف «${u.name}» ✓` : `تم تفعيل «${u.name}» ✓`, 'ok');
+    } catch (e) {
+      status('pstatus', e.message, 'err');
+    }
+  }
+
+  async function resetPassword(u) {
+    if (!confirm(`إعادة تعيين كلمة مرور «${u.name}»؟\nسيتوقف تسجيل الدخول بكلمة المرور الحالية فورًا، وسيُطلب منه تغييرها عند أول دخول.`)) return;
+    status('pstatus', 'جارٍ إعادة التعيين…');
+    try {
+      const j = await api({ action: 'reset_password', user_id: u.id });
+      showPassword(`كلمة مرور مؤقتة — ${u.name}`, `${u.name} — ${u.phone}`, j.temp_password);
+      status('pstatus', '', '');
+    } catch (e) {
+      status('pstatus', e.message, 'err');
+    }
+  }
+
+  // -------------------------------------------------------------- create rep
+  $('addBtn').addEventListener('click', () => { $('createPanel').style.display = 'block'; $('cName').focus(); });
+  $('cancelCreate').addEventListener('click', () => { $('createPanel').style.display = 'none'; });
+
+  $('createBtn').addEventListener('click', async () => {
+    $('createBtn').disabled = true;
+    status('pstatus', 'جارٍ إنشاء الحساب…');
+    try {
+      const j = await api({
+        action: 'create_rep',
+        name: $('cName').value,
+        phone: $('cPhone').value,
+        employee_id: $('cEmp').value,
+        region: $('cRegion').value,
+        business_unit: $('cUnit').value,
+      });
+      showPassword(`تم إنشاء الحساب — ${j.name}`, `${j.name} — ${j.phone}`, j.temp_password);
+      $('createPanel').style.display = 'none';
+      $('cName').value = ''; $('cPhone').value = ''; $('cEmp').value = '';
+      await loadUsers();
+    } catch (e) {
+      status('pstatus', e.message, 'err');
+    } finally {
+      $('createBtn').disabled = false;
+    }
+  });
+
+  // ----------------------------------------------- one-time password panel
+  function showPassword(title, meta, pw) {
+    $('pwtitle').textContent = title;
+    $('pwmeta').textContent = meta;
+    $('pwvalue').textContent = pw;
+    $('pwresult').style.display = 'block';
+    $('pwresult').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  $('copyPw').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('pwvalue').textContent);
+      $('copyPw').textContent = 'تم النسخ ✓';
+      setTimeout(() => { $('copyPw').textContent = 'نسخ كلمة المرور'; }, 2000);
+    } catch { /* clipboard blocked — user can select the text manually */ }
+  });
+  $('closePw').addEventListener('click', () => {
+    $('pwvalue').textContent = '';
+    $('pwresult').style.display = 'none';
+  });
+</script>
+</body>
+</html>
