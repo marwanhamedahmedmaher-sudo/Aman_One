@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
 <title>بوابة إدارة المناديب — أمان</title>
 <style>
   :root { --teal:#00AEC7; --navy:#002A47; --bg:#F2F4F7; --border:#E0E6ED; --red:#AB2328; --green:#0F6E56; }
@@ -56,6 +57,10 @@
 </style>
 </head>
 <body>
+<script>
+  // Clickjacking guard — GitHub Pages cannot send X-Frame-Options headers.
+  if (window.top !== window.self) { try { window.top.location = window.location; } catch (e) { document.documentElement.innerHTML = ''; } }
+</script>
 
   <!-- ============================ Login ============================ -->
   <div class="card" id="login">
