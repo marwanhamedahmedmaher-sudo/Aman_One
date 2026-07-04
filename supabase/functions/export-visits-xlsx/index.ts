@@ -5,8 +5,9 @@
 // being written by reps on the pre-visits APK. Interim visibility until the
 // fleet upgrade (P1-17); remove the sheet once task_checkins goes quiet.
 //
-// A sales rep exports their OWN activity; a supervisor/admin exports everyone's.
-// RTL Arabic worksheets. Photo bucket stays private.
+// A sales rep exports their OWN activity; a supervisor exports their own
+// BUSINESS UNIT's activity only; admin exports everyone's. RTL Arabic
+// worksheets. Photo bucket stays private.
 //
 //   GET /functions/v1/export-visits-xlsx?from=YYYY-MM-DD&to=YYYY-MM-DD  (range, inclusive)
 //   GET /functions/v1/export-visits-xlsx?date=YYYY-MM-DD                (one Cairo day, legacy)
@@ -67,12 +68,17 @@ Deno.serve(async (req: Request) => {
   const user = auth?.user;
   if (!user) return err({ error: 'unauthorized' }, 401);
 
-  const { data: me } = await userClient.from('users').select('role').eq('id', user.id).single();
+  const { data: me } = await userClient
+    .from('users')
+    .select('role, business_unit')
+    .eq('id', user.id)
+    .single();
   const role = me?.role;
   if (role !== 'sales_rep' && role !== 'supervisor' && role !== 'admin') {
     return err({ error: 'forbidden', detail: 'not authorized' }, 403);
   }
-  // A sales rep exports only their own visits; supervisor/admin export everyone's.
+  // Scoping: a sales rep exports only their own visits; a supervisor exports
+  // their own BUSINESS UNIT only; admin exports everyone's.
   const privileged = role === 'supervisor' || role === 'admin';
 
   const url = new URL(req.url);
@@ -82,6 +88,23 @@ Deno.serve(async (req: Request) => {
   const label = date ?? ((from || to) ? `${from ?? 'start'}_${to ?? 'end'}` : 'all');
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+  // Supervisor → rep ids of their own business unit (service role: a
+  // supervisor's RLS can't list other users). Admin stays unrestricted.
+  let buRepIds: string[] | null = null;
+  if (role === 'supervisor') {
+    const { data: buUsers, error: buErr } = await admin
+      .from('users')
+      .select('id')
+      .eq('business_unit', me!.business_unit);
+    if (buErr) return err({ error: 'query_failed', detail: buErr.message }, 500);
+    buRepIds = (buUsers ?? []).map((u) => u.id);
+  }
+  const scopeFilter = (q: any) => {
+    if (!privileged) return q.eq('rep_id', user.id); // rep → own visits only
+    if (buRepIds) return q.in('rep_id', buRepIds); // supervisor → own BU only
+    return q; // admin → everyone
+  };
 
   const dateFilter = (q: any) => {
     if (date) return q.eq('field_tasks.task_date', date);
@@ -101,7 +124,7 @@ Deno.serve(async (req: Request) => {
     .order('recorded_at', { ascending: false })
     .limit(MAX_ROWS);
   q = dateFilter(q);
-  if (!privileged) q = q.eq('rep_id', user.id); // rep → own visits only
+  q = scopeFilter(q);
 
   const { data: visits, error: vErr } = await q;
   if (vErr) return err({ error: 'query_failed', detail: vErr.message }, 500);
@@ -117,7 +140,7 @@ Deno.serve(async (req: Request) => {
     .order('recorded_at', { ascending: false })
     .limit(MAX_ROWS);
   cq = dateFilter(cq);
-  if (!privileged) cq = cq.eq('rep_id', user.id);
+  cq = scopeFilter(cq);
   const { data: checkins } = await cq;
 
   const repIds = [
