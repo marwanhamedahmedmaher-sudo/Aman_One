@@ -68,6 +68,19 @@
   const ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmbHd1ZGttaHF3b3NjaXBzY2JiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNzM4NTMsImV4cCI6MjA5MTk0OTg1M30.141uW5uriJUKDNJnQ6RYyo2dasWVQy4FUbqyKUBZ48U';
 
   const $ = (id) => document.getElementById(id);
+  // Accept Egyptian numbers in any common form (01…, 201…, 00201…, +201…,
+  // Arabic-Indic digits) → the stored E.164 (+201XXXXXXXXX). Mirrors the app +
+  // edge function so a supervisor doesn't have to type the +20 prefix.
+  const normalizePhone = (raw) => {
+    let p = String(raw || '')
+      .replace(/[٠-٩]/g, (d) => d.charCodeAt(0) - 0x0660)
+      .replace(/[۰-۹]/g, (d) => d.charCodeAt(0) - 0x06f0)
+      .replace(/[\s\-().]/g, '');
+    if (p.startsWith('00')) p = '+' + p.slice(2);
+    if (/^01[0-9]{9}$/.test(p)) return '+2' + p;
+    if (/^201[0-9]{9}$/.test(p)) return '+' + p;
+    return p;
+  };
   const today = new Date(Date.now() + 2*3600*1000).toISOString().slice(0,10); // Cairo today
   $('from').value = today;
   $('to').value = today;
@@ -75,7 +88,7 @@
   const ROLE_AR = { supervisor: 'مشرف', admin: 'مسؤول النظام', sales_rep: 'مندوب مبيعات' };
 
   $('go').addEventListener('click', async () => {
-    const phone = $('phone').value.trim();
+    const phone = normalizePhone($('phone').value);
     const password = $('password').value;
     if (!phone || !password) return status('أدخل رقم الموبايل وكلمة المرور.', 'err');
 
