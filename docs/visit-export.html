@@ -82,14 +82,16 @@
       // Guards against browser autofill silently logging in as a rep → empty sheet.
       status('جارٍ التحقق من الحساب…');
       const ures = await fetch(
-        `${SUPABASE_URL}/rest/v1/users?id=eq.${aj.user.id}&select=name,role`,
+        `${SUPABASE_URL}/rest/v1/users?id=eq.${aj.user.id}&select=name,role,business_unit`,
         { headers: { 'apikey': ANON, 'Authorization': `Bearer ${aj.access_token}` } },
       );
       const me = ures.ok ? (await ures.json())[0] : null;
       if (!me) throw new Error('تعذّر التحقق من هوية الحساب — أعد المحاولة.');
 
       const privileged = me.role === 'supervisor' || me.role === 'admin';
-      $('who').textContent = `تم تسجيل الدخول: ${me.name} — ${ROLE_AR[me.role] || me.role}`;
+      // Supervisors are scoped server-side to their own business unit — show it.
+      const scopeNote = me.role === 'supervisor' ? ` — وحدة: ${me.business_unit}` : '';
+      $('who').textContent = `تم تسجيل الدخول: ${me.name} — ${ROLE_AR[me.role] || me.role}${scopeNote}`;
       $('who').className = privileged ? 'good' : 'bad';
       if (!privileged) {
         throw new Error(
