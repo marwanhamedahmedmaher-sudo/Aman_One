@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/field_task.dart';
 import '../models/task_visit.dart';
+import '../models/task_plan_item.dart';
 import '../services/analytics.dart';
 
 /// Outcome of logging a visit, so the UI can show the right message.
@@ -28,12 +29,23 @@ class FieldTasksProvider extends ChangeNotifier {
   String? _cachedUid; // which rep the cache belongs to (guards account switch)
   final Set<String> _busy = {}; // task ids with an in-flight write
 
+  // ---- weekly planning state (separate from today's execution view) ----
+  List<FieldTask> _weekTasks = [];
+  final Map<String, int> _planCounts = {}; // task_id -> number of planned stops
+  DateTime? _weekStart; // Cairo Sunday the planning week starts on
+  bool _weekLoading = false;
+
   List<FieldTask> get tasks => _tasks;
   bool get isLoading => _isLoading;
   bool get locationConsent => _locationConsent;
   String? get error => _error;
   int visitCount(String taskId) => _visitCounts[taskId] ?? 0;
   bool isBusy(String taskId) => _busy.contains(taskId);
+
+  List<FieldTask> get weekTasks => _weekTasks;
+  DateTime? get weekStart => _weekStart;
+  bool get weekLoading => _weekLoading;
+  int planCount(String taskId) => _planCounts[taskId] ?? 0;
 
   /// Current date in Cairo time (UTC+2; Egypt has no DST).
   static String _cairoToday() {
@@ -114,6 +126,9 @@ class FieldTasksProvider extends ChangeNotifier {
     _locationConsent = false;
     _error = null;
     _busy.clear();
+    _weekTasks = [];
+    _planCounts.clear();
+    _weekStart = null;
     notifyListeners();
   }
 
@@ -193,6 +208,7 @@ class FieldTasksProvider extends ChangeNotifier {
     String? businessName,
     String? branchId,
     bool? applicationSubmitted,
+    String? planItemId, // set when this visit executes a planned stop
     String? templateSlug, // for analytics only
   }) async {
     if (_busy.contains(taskId)) {
@@ -221,6 +237,7 @@ class FieldTasksProvider extends ChangeNotifier {
         'p_business_name': businessName,
         'p_branch_id': branchId,
         'p_application_submitted': applicationSubmitted,
+        'p_plan_item_id': planItemId,
       });
 
       // RPC returns TABLE(visit_id, in_window) -> a single-row list.
@@ -261,6 +278,140 @@ class FieldTasksProvider extends ChangeNotifier {
     } finally {
       _busy.remove(taskId);
       notifyListeners();
+    }
+  }
+
+  // ==========================================================================
+  // Weekly planning
+  // ==========================================================================
+
+  /// Generate (idempotently) and load the working week's tasks (Sun–Thu × 3
+  /// windows) for the current rep, each with its planned-stop count. Populates
+  /// [weekTasks] / [weekStart] / [planCount].
+  Future<void> loadWeekTasks() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return;
+
+    _weekLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      // Server pre-generates the week and returns its Sunday.
+      final res = await _supabase.rpc('ensure_my_week_field_tasks');
+      final weekStartStr = res as String?;
+      if (weekStartStr == null) {
+        // Not an active rep — nothing to plan.
+        _weekTasks = [];
+        _planCounts.clear();
+        _weekStart = null;
+        _weekLoading = false;
+        notifyListeners();
+        return;
+      }
+      final weekStart = DateTime.parse(weekStartStr);
+      final weekEnd = weekStart.add(const Duration(days: 4));
+      String d(DateTime dt) => dt.toIso8601String().substring(0, 10);
+
+      final data = await _supabase
+          .from('field_tasks')
+          .select('*, task_templates(slug), task_plan_items(count)')
+          .eq('assigned_to', uid)
+          .gte('task_date', d(weekStart))
+          .lte('task_date', d(weekEnd))
+          .order('task_date', ascending: true)
+          .order('window_start', ascending: true);
+
+      _weekTasks = [];
+      _planCounts.clear();
+      for (final row in (data as List)) {
+        final map = row as Map<String, dynamic>;
+        final task = FieldTask.fromJson(map);
+        _weekTasks.add(task);
+        _planCounts[task.id] = _extractCount(map['task_plan_items']);
+      }
+      _weekStart = weekStart;
+    } catch (_) {
+      _error = 'حدث خطأ أثناء تحميل خطة الأسبوع';
+    }
+
+    _weekLoading = false;
+    notifyListeners();
+  }
+
+  /// Fetch the planned stops for one task (oldest first), with joined
+  /// governorate + branch names for display.
+  Future<List<TaskPlanItem>> fetchPlanItems(String taskId) async {
+    final data = await _supabase
+        .from('task_plan_items')
+        .select('*, governorates(name_ar), aman_branches(name_ar)')
+        .eq('task_id', taskId)
+        .order('created_at', ascending: true);
+    return (data as List)
+        .map((r) => TaskPlanItem.fromJson(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Add one planned stop via the add_plan_item RPC. Returns null on success or
+  /// an Arabic error message on failure.
+  Future<String?> addPlanItem({
+    required String taskId,
+    int? governorateId,
+    String notes = '',
+    String? placeKind,
+    String? placeName,
+    List<String>? products,
+    String? merchantName,
+    String? businessName,
+    String? branchId,
+    String? templateSlug, // for analytics only
+  }) async {
+    try {
+      await _supabase.rpc('add_plan_item', params: {
+        'p_task_id': taskId,
+        'p_governorate_id': governorateId,
+        'p_notes': notes,
+        'p_place_kind': placeKind,
+        'p_place_name': placeName,
+        'p_products': products,
+        'p_merchant_name': merchantName,
+        'p_business_name': businessName,
+        'p_branch_id': branchId,
+      });
+      _planCounts[taskId] = (_planCounts[taskId] ?? 0) + 1;
+      notifyListeners();
+      await Analytics.track('plan_item_added', properties: {
+        'task_id': taskId,
+        'template_slug': templateSlug,
+      });
+      return null;
+    } on PostgrestException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'حدث خطأ أثناء إضافة المكان';
+    }
+  }
+
+  /// Remove a still-planned stop. Returns true on success.
+  Future<bool> removePlanItem(String planItemId, {String? taskId}) async {
+    try {
+      await _supabase.rpc('remove_plan_item', params: {
+        'p_plan_item_id': planItemId,
+      });
+      if (taskId != null && (_planCounts[taskId] ?? 0) > 0) {
+        _planCounts[taskId] = _planCounts[taskId]! - 1;
+      }
+      notifyListeners();
+      await Analytics.track('plan_item_removed', properties: {'task_id': taskId});
+      return true;
+    } on PostgrestException catch (e) {
+      _error = e.message;
+      notifyListeners();
+      return false;
+    } catch (_) {
+      _error = 'حدث خطأ أثناء حذف المكان';
+      notifyListeners();
+      return false;
     }
   }
 

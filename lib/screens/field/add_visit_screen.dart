@@ -4,21 +4,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import '../../models/aman_branch.dart';
 import '../../models/field_task.dart';
 import '../../models/task_visit.dart';
+import '../../models/task_plan_item.dart';
 import '../../providers/field_tasks_provider.dart';
 import '../../providers/lookups_provider.dart';
 import '../../services/location_service.dart';
 import '../../services/visit_photo_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/branch_search_sheet.dart';
 
 /// The per-mission "add visit" form. Fields shown depend on the task's mission
 /// (gov/schools, merchants, or Aman branch). Captures GPS + a required photo +
 /// contacted/onboarded counts + notes, then logs the visit via the provider.
+///
+/// When [planItem] is passed, the place fields are pre-filled from that planned
+/// stop and logging the visit marks it 'visited' ("plan drives the visit").
 class AddVisitScreen extends StatefulWidget {
   final FieldTask task;
-  const AddVisitScreen({super.key, required this.task});
+  final TaskPlanItem? planItem;
+  const AddVisitScreen({super.key, required this.task, this.planItem});
 
   @override
   State<AddVisitScreen> createState() => _AddVisitScreenState();
@@ -64,6 +69,33 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
     // BuildContext across an await.
     final lookups = context.read<LookupsProvider>();
     Future.microtask(lookups.ensureLoaded);
+    _prefillFromPlan();
+  }
+
+  /// Seed the place fields from a planned stop, so executing a plan is just
+  /// "add GPS + photo + counts".
+  void _prefillFromPlan() {
+    final p = widget.planItem;
+    if (p == null) return;
+    _governorateId = p.governorateId;
+    if (p.notes.isNotEmpty) _notesCtrl.text = p.notes;
+    // mission 1
+    _placeKind = PlaceKind.values
+        .cast<PlaceKind?>()
+        .firstWhere((k) => k?.value == p.placeKind, orElse: () => null);
+    if (p.placeName != null) _placeNameCtrl.text = p.placeName!;
+    // mission 2
+    for (final v in p.products) {
+      final prod = VisitProduct.values
+          .cast<VisitProduct?>()
+          .firstWhere((e) => e?.value == v, orElse: () => null);
+      if (prod != null) _products.add(prod);
+    }
+    if (p.merchantName != null) _merchantCtrl.text = p.merchantName!;
+    if (p.businessName != null) _businessCtrl.text = p.businessName!;
+    // mission 3
+    _branchId = p.branchId;
+    _branchName = p.branchName;
   }
 
   @override
@@ -247,10 +279,6 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
         const SizedBox(height: 16),
       ];
 
-  /// Strip the leading "Aman -" prefix for a cleaner display label.
-  static String branchLabel(String name) =>
-      name.replaceFirst(RegExp(r'^Aman\s*[-–]\s*'), '').trim();
-
   // ---- shared field builders ----
 
   Widget _label(String text) => Padding(
@@ -297,57 +325,15 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
 
   Widget _branchPicker() {
     final lookups = context.watch<LookupsProvider>();
-    if (lookups.loaded && lookups.branches.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.inputBg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Text('لا توجد فروع متاحة حالياً', style: AppTheme.bodySmall),
-      );
-    }
-    final selected = _branchName != null;
-    return InkWell(
-      onTap: () => _openBranchSearch(lookups.branches),
-      borderRadius: BorderRadius.circular(12),
-      child: InputDecorator(
-        decoration: AppTheme.inputDecoration(),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                selected ? branchLabel(_branchName!) : 'ابحث عن الفرع…',
-                style: selected ? AppTheme.inputText : AppTheme.hintText,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Icon(selected ? Icons.edit_location_alt_outlined : Icons.search,
-                size: 20, color: AppColors.textLight),
-          ],
-        ),
-      ),
+    return BranchPickerField(
+      branches: lookups.branches,
+      loaded: lookups.loaded,
+      selectedName: _branchName,
+      onPicked: (b) => setState(() {
+        _branchId = b.id;
+        _branchName = b.nameAr;
+      }),
     );
-  }
-
-  Future<void> _openBranchSearch(List<AmanBranch> branches) async {
-    FocusScope.of(context).unfocus();
-    final picked = await showModalBottomSheet<AmanBranch>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _BranchSearchSheet(branches: branches),
-    );
-    if (picked != null && mounted) {
-      setState(() {
-        _branchId = picked.id;
-        _branchName = picked.nameAr;
-      });
-    }
   }
 
   Widget _photoPicker() {
@@ -644,6 +630,7 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
       businessName: _isMerchants ? _businessCtrl.text.trim() : null,
       branchId: _isBranch ? _branchId : null,
       applicationSubmitted: _isMerchants ? _applicationSubmitted : null,
+      planItemId: widget.planItem?.id,
       templateSlug: _mission.slug,
     );
 
@@ -695,105 +682,6 @@ class _AddVisitScreenState extends State<AddVisitScreen> {
             style: AppTheme.bodyMedium.copyWith(color: AppColors.textWhite)),
         backgroundColor: isError ? AppColors.buttonRed : AppColors.primary,
         behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-}
-
-/// A searchable, scrollable branch picker. Type-ahead filters the ~250 branches
-/// so the rep finds their store in a couple of keystrokes instead of scrolling.
-class _BranchSearchSheet extends StatefulWidget {
-  final List<AmanBranch> branches;
-  const _BranchSearchSheet({required this.branches});
-
-  @override
-  State<_BranchSearchSheet> createState() => _BranchSearchSheetState();
-}
-
-class _BranchSearchSheetState extends State<_BranchSearchSheet> {
-  final _searchCtrl = TextEditingController();
-  late List<AmanBranch> _filtered = widget.branches;
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
-  }
-
-  void _onSearch(String q) {
-    final query = q.trim().toLowerCase();
-    setState(() {
-      _filtered = query.isEmpty
-          ? widget.branches
-          : widget.branches
-              .where((b) => b.nameAr.toLowerCase().contains(query))
-              .toList();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Take most of the screen but leave room for the keyboard.
-    final maxH = MediaQuery.of(context).size.height * 0.85;
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxH),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: TextField(
-                controller: _searchCtrl,
-                autofocus: true,
-                textAlign: TextAlign.right,
-                style: AppTheme.inputText,
-                onChanged: _onSearch,
-                decoration: AppTheme.inputDecoration(
-                  hintText: 'ابحث باسم الفرع أو المنطقة…',
-                  prefixIcon: const Icon(Icons.search, color: AppColors.textLight),
-                ),
-              ),
-            ),
-            Expanded(
-              child: _filtered.isEmpty
-                  ? Center(
-                      child: Text('لا توجد نتائج مطابقة',
-                          style: AppTheme.bodyMedium),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      itemCount: _filtered.length,
-                      separatorBuilder: (_, _) => const Divider(
-                          height: 1, color: AppColors.border, indent: 16, endIndent: 16),
-                      itemBuilder: (_, i) {
-                        final b = _filtered[i];
-                        return ListTile(
-                          leading: const Icon(Icons.store_mall_directory_outlined,
-                              color: AppColors.primary, size: 20),
-                          title: Text(
-                            _AddVisitScreenState.branchLabel(b.nameAr),
-                            style: AppTheme.bodyLarge,
-                          ),
-                          onTap: () => Navigator.of(context).pop(b),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
       ),
     );
   }
