@@ -30,7 +30,7 @@ class FieldTasksSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 12, 0),
+          padding: const EdgeInsetsDirectional.fromSTEB(20, 4, 12, 0),
           child: Row(
             children: [
               Expanded(child: Text('مهام اليوم', style: AppTheme.heading3)),
