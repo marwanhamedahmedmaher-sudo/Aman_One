@@ -4,6 +4,7 @@ import '../models/field_task.dart';
 import '../models/task_visit.dart';
 import '../models/task_plan_item.dart';
 import '../services/analytics.dart';
+import '../utils/cairo_datetime.dart';
 
 /// Outcome of logging a visit, so the UI can show the right message.
 class VisitOutcome {
@@ -47,11 +48,8 @@ class FieldTasksProvider extends ChangeNotifier {
   bool get weekLoading => _weekLoading;
   int planCount(String taskId) => _planCounts[taskId] ?? 0;
 
-  /// Current date in Cairo time (UTC+2; Egypt has no DST).
-  static String _cairoToday() {
-    final cairo = DateTime.now().toUtc().add(const Duration(hours: 2));
-    return cairo.toIso8601String().substring(0, 10);
-  }
+  /// Current date in Cairo time (DST-correct via the timezone package).
+  static String _cairoToday() => cairoTodayIso();
 
   /// Our RPCs `RAISE` Arabic messages for auth/role/ownership failures, but a
   /// raw CHECK-constraint / RLS rejection arrives as English technical text.

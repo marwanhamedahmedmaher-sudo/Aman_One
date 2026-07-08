@@ -1,16 +1,26 @@
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
+
 /// Cairo-local time helpers, shared across the field-task/visit/plan screens.
 ///
-/// NOTE: Egypt reintroduced DST in 2023, so the true Cairo offset is +2 in
-/// winter and +3 in summer. The app has historically assumed a fixed +2; these
-/// helpers centralize that assumption so a proper DST fix (or an intl/timezone
-/// package) can be applied in ONE place instead of the 8+ copies that existed
-/// before. See the DST cleanup ticket. Server-side timestamps are already
-/// computed with `AT TIME ZONE 'Africa/Cairo'` (DST-aware) — only client
-/// *display* uses this fixed offset.
-const Duration kCairoOffset = Duration(hours: 2);
+/// Uses the IANA `Africa/Cairo` zone via the `timezone` package, so display
+/// matches the server's `AT TIME ZONE 'Africa/Cairo'` exactly — DST-correct
+/// (Egypt reintroduced DST in 2023: +2 winter / +3 summer, incl. the Ramadan
+/// suspensions) and independent of the device's own timezone setting. The tz
+/// database is loaded lazily on first use, so no explicit init is needed in
+/// main() (calling it again is a cheap no-op guarded below).
+tz.Location? _cairo;
+tz.Location get _cairoLocation {
+  if (_cairo == null) {
+    tzdata.initializeTimeZones();
+    _cairo = tz.getLocation('Africa/Cairo');
+  }
+  return _cairo!;
+}
 
-/// Convert a (UTC or local) DateTime to Cairo wall-clock time.
-DateTime toCairo(DateTime dt) => dt.toUtc().add(kCairoOffset);
+/// Convert any DateTime (UTC or local) to Cairo wall-clock time.
+/// `TZDateTime` is a `DateTime`, so `.hour`/`.weekday`/`.day` read as Cairo-local.
+DateTime toCairo(DateTime dt) => tz.TZDateTime.from(dt, _cairoLocation);
 
 /// `HH:mm` in Cairo time (24h, zero-padded).
 String cairoHm(DateTime dt) {
@@ -41,4 +51,12 @@ String cairoWeekdayAr(DateTime dt) {
 String cairoDayLabel(DateTime dt) {
   final c = toCairo(dt);
   return '${cairoWeekdayAr(dt)} ${c.day}/${c.month}';
+}
+
+/// Today's date in Cairo, as `yyyy-MM-dd` (matches server `task_date`).
+String cairoTodayIso() {
+  final c = toCairo(DateTime.now());
+  return '${c.year.toString().padLeft(4, '0')}-'
+      '${c.month.toString().padLeft(2, '0')}-'
+      '${c.day.toString().padLeft(2, '0')}';
 }
