@@ -70,7 +70,9 @@ class BranchPickerField extends StatelessWidget {
       ),
       builder: (_) => BranchSearchSheet(branches: branches),
     );
-    if (picked != null) onPicked(picked);
+    // Guard against the host being disposed while the sheet was open — onPicked
+    // calls setState on the host State.
+    if (picked != null && context.mounted) onPicked(picked);
   }
 }
 

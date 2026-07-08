@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/field_task.dart';
 import '../../providers/field_tasks_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/cairo_datetime.dart';
 import 'task_plan_screen.dart';
 
 /// Weekly planning overview: the working week (Sun–Thu), each day showing its 3
@@ -42,6 +43,24 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
     if (provider.weekLoading && provider.weekTasks.isEmpty) {
       return const Center(
           child: CircularProgressIndicator(color: AppColors.primary));
+    }
+    if (provider.error != null && provider.weekTasks.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 40, color: AppColors.buttonRed),
+            const SizedBox(height: 12),
+            Text(provider.error!, style: AppTheme.bodyLarge),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: provider.loadWeekTasks,
+              style: AppTheme.primaryButton(),
+              child: Text('إعادة المحاولة', style: AppTheme.buttonText),
+            ),
+          ],
+        ),
+      );
     }
     if (provider.weekTasks.isEmpty) {
       return RefreshIndicator(
@@ -85,7 +104,8 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
               style: AppTheme.bodyMedium.copyWith(color: AppColors.textLight)),
           const SizedBox(height: 12),
           for (final entry in byDay.entries) ...[
-            _dayHeader(entry.key),
+            // Label from a real task timestamp (not the naive grouping key).
+            _dayHeader(entry.value.first.windowStart),
             const SizedBox(height: 8),
             ...entry.value.map((t) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -110,7 +130,7 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
     });
   }
 
-  Widget _dayHeader(DateTime day) {
+  Widget _dayHeader(DateTime windowStart) {
     return Row(
       children: [
         Container(
@@ -119,7 +139,7 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
             color: AppColors.primaryLight,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Text(_dayLabel(day),
+          child: Text(cairoDayLabel(windowStart),
               style: AppTheme.bodyMedium.copyWith(
                   color: AppColors.primary, fontWeight: FontWeight.w600)),
         ),
@@ -132,26 +152,11 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
   Map<DateTime, List<FieldTask>> _groupByDay(List<FieldTask> tasks) {
     final map = <DateTime, List<FieldTask>>{};
     for (final t in tasks) {
-      final cairo = t.windowStart.toUtc().add(const Duration(hours: 2));
+      final cairo = toCairo(t.windowStart);
       final day = DateTime(cairo.year, cairo.month, cairo.day);
       map.putIfAbsent(day, () => []).add(t);
     }
     return map;
-  }
-
-  static const _weekdaysAr = [
-    'الأحد',
-    'الإثنين',
-    'الثلاثاء',
-    'الأربعاء',
-    'الخميس',
-    'الجمعة',
-    'السبت',
-  ];
-
-  static String _dayLabel(DateTime day) {
-    final idx = day.weekday == DateTime.sunday ? 0 : day.weekday;
-    return '${_weekdaysAr[idx]} ${day.day}/${day.month}';
   }
 }
 
@@ -203,7 +208,7 @@ class _WindowRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 3),
-                  Text('${_t(task.windowStart)} – ${_t(task.windowEnd)}',
+                  Text('${cairoHm(task.windowStart)} – ${cairoHm(task.windowEnd)}',
                       style: AppTheme.bodySmall,
                       textDirection: TextDirection.ltr),
                 ],
@@ -229,10 +234,5 @@ class _WindowRow extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static String _t(DateTime dt) {
-    final cairo = dt.toUtc().add(const Duration(hours: 2));
-    return '${cairo.hour.toString().padLeft(2, '0')}:${cairo.minute.toString().padLeft(2, '0')}';
   }
 }

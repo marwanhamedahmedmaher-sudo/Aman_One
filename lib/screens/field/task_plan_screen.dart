@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/field_task.dart';
 import '../../models/task_plan_item.dart';
+import '../../models/task_visit.dart';
 import '../../providers/field_tasks_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/cairo_datetime.dart';
 import 'add_plan_item_screen.dart';
 import 'add_visit_screen.dart';
 
@@ -32,6 +34,9 @@ class _TaskPlanScreenState extends State<TaskPlanScreen> {
     _future = context.read<FieldTasksProvider>().fetchPlanItems(widget.task.id);
     _future.then((v) {
       if (mounted) setState(() => _items = v);
+    }).catchError((_) {
+      // Error is surfaced via FutureBuilder(snap.hasError); swallow here so this
+      // secondary listener doesn't raise an unhandled async error.
     });
   }
 
@@ -133,10 +138,10 @@ class _TaskPlanScreenState extends State<TaskPlanScreen> {
         children: [
           const Icon(Icons.event_outlined, size: 18, color: AppColors.primary),
           const SizedBox(width: 8),
-          Text(_dateLabel(widget.task.windowStart), style: AppTheme.bodySmall),
+          Text(cairoDayLabel(widget.task.windowStart), style: AppTheme.bodySmall),
           const Spacer(),
           Text(
-            '${_t(widget.task.windowStart)} – ${_t(widget.task.windowEnd)}',
+            '${cairoHm(widget.task.windowStart)} – ${cairoHm(widget.task.windowEnd)}',
             style: AppTheme.bodyMedium.copyWith(
                 color: AppColors.primary, fontWeight: FontWeight.w600),
             textDirection: TextDirection.ltr,
@@ -150,6 +155,7 @@ class _TaskPlanScreenState extends State<TaskPlanScreen> {
     return FutureBuilder<List<TaskPlanItem>>(
       future: _future,
       builder: (context, snap) {
+        if (snap.hasError && _items.isEmpty) return _errorState();
         if (snap.connectionState == ConnectionState.waiting && _items.isEmpty) {
           return const Center(
               child: CircularProgressIndicator(color: AppColors.primary));
@@ -193,28 +199,25 @@ class _TaskPlanScreenState extends State<TaskPlanScreen> {
     );
   }
 
-  static String _t(DateTime dt) {
-    final cairo = dt.toUtc().add(const Duration(hours: 2));
-    return '${cairo.hour.toString().padLeft(2, '0')}:${cairo.minute.toString().padLeft(2, '0')}';
+  Widget _errorState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, size: 40, color: AppColors.buttonRed),
+          const SizedBox(height: 12),
+          Text('تعذّر تحميل الأماكن المخططة', style: AppTheme.bodyLarge),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: () => setState(_reload),
+            style: AppTheme.primaryButton(),
+            child: Text('إعادة المحاولة', style: AppTheme.buttonText),
+          ),
+        ],
+      ),
+    );
   }
 
-  static const _weekdaysAr = [
-    'الأحد', // DateTime.sunday == 7 -> handled below
-    'الإثنين',
-    'الثلاثاء',
-    'الأربعاء',
-    'الخميس',
-    'الجمعة',
-    'السبت',
-  ];
-
-  static String _dateLabel(DateTime dt) {
-    final cairo = dt.toUtc().add(const Duration(hours: 2));
-    // DateTime.weekday: Mon=1..Sun=7. Map to Arabic (Sun first).
-    final idx = cairo.weekday == DateTime.sunday ? 0 : cairo.weekday;
-    final name = _weekdaysAr[idx];
-    return '$name ${cairo.day}/${cairo.month}';
-  }
 }
 
 class _PlanCard extends StatelessWidget {
@@ -274,9 +277,10 @@ class _PlanCard extends StatelessWidget {
               if (item.governorateName != null)
                 _meta(Icons.location_city_outlined, item.governorateName!),
               if (item.products.isNotEmpty)
-                _meta(Icons.sell_outlined, _productsLabel(item.products)),
+                _meta(Icons.sell_outlined, VisitProduct.joinLabels(item.products)),
               if (item.placeKind != null)
-                _meta(Icons.category_outlined, _placeKindLabel(item.placeKind!)),
+                _meta(Icons.category_outlined,
+                    PlaceKind.labelForValue(item.placeKind!)),
             ],
           ),
           if (item.notes.isNotEmpty) ...[
@@ -344,18 +348,4 @@ class _PlanCard extends StatelessWidget {
     );
   }
 
-  static String _productsLabel(List<String> products) => products
-      .map((p) => p == 'microfinance'
-          ? 'تمويل'
-          : p == 'acceptance'
-              ? 'Acceptance'
-              : p)
-      .join(' + ');
-
-  static String _placeKindLabel(String k) => switch (k) {
-        'school' => 'مدرسة',
-        'gov_institution' => 'مؤسسة حكومية',
-        'hospital' => 'مستشفى',
-        _ => k,
-      };
 }

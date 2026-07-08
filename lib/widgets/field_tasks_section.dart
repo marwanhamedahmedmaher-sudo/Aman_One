@@ -5,6 +5,7 @@ import '../providers/field_tasks_provider.dart';
 import '../screens/field/task_visits_screen.dart';
 import '../screens/field/weekly_plan_screen.dart';
 import '../theme/app_theme.dart';
+import '../utils/cairo_datetime.dart';
 
 /// The unified daily field-visit schedule (3 windows). Each task card opens a
 /// dedicated page where the rep logs multiple visits. Renders at the top of the
@@ -197,15 +198,6 @@ class _FieldTaskCard extends StatelessWidget {
     });
   }
 
-  // ---- formatting helpers (Cairo local = UTC+2, no DST) ----
-
   static String _windowLabel(FieldTask t) =>
-      '${_timeOfDay(t.windowStart)} – ${_timeOfDay(t.windowEnd)}';
-
-  static String _timeOfDay(DateTime dt) {
-    final cairo = dt.toUtc().add(const Duration(hours: 2));
-    final h = cairo.hour.toString().padLeft(2, '0');
-    final m = cairo.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
+      '${cairoHm(t.windowStart)} – ${cairoHm(t.windowEnd)}';
 }

@@ -53,6 +53,14 @@ class FieldTasksProvider extends ChangeNotifier {
     return cairo.toIso8601String().substring(0, 10);
   }
 
+  /// Our RPCs `RAISE` Arabic messages for auth/role/ownership failures, but a
+  /// raw CHECK-constraint / RLS rejection arrives as English technical text.
+  /// Surface the message only when it's actually Arabic; otherwise fall back to
+  /// the Arabic generic (CLAUDE.md: bad input must surface an Arabic error).
+  static final _arabic = RegExp(r'[؀-ۿ]');
+  static String _friendlyError(PostgrestException e, String fallback) =>
+      _arabic.hasMatch(e.message) ? e.message : fallback;
+
   /// Load today's field tasks for the current rep. Generates them via the
   /// idempotent RPC first, then fetches each task with its visit count.
   Future<void> loadTodaysTasks() async {
@@ -269,7 +277,9 @@ class FieldTasksProvider extends ChangeNotifier {
     } on PostgrestException catch (e) {
       await Analytics.track('field_visit_failed',
           properties: {'reason': 'postgrest', 'pg_code': e.code, 'task_id': taskId});
-      return VisitOutcome(success: false, error: e.message);
+      return VisitOutcome(
+          success: false,
+          error: _friendlyError(e, 'حدث خطأ أثناء تسجيل الزيارة'));
     } catch (_) {
       await Analytics.track('field_visit_failed',
           properties: {'reason': 'unexpected', 'task_id': taskId});
@@ -386,7 +396,7 @@ class FieldTasksProvider extends ChangeNotifier {
       });
       return null;
     } on PostgrestException catch (e) {
-      return e.message;
+      return _friendlyError(e, 'حدث خطأ أثناء إضافة المكان');
     } catch (_) {
       return 'حدث خطأ أثناء إضافة المكان';
     }
@@ -405,7 +415,7 @@ class FieldTasksProvider extends ChangeNotifier {
       await Analytics.track('plan_item_removed', properties: {'task_id': taskId});
       return true;
     } on PostgrestException catch (e) {
-      _error = e.message;
+      _error = _friendlyError(e, 'حدث خطأ أثناء حذف المكان');
       notifyListeners();
       return false;
     } catch (_) {
@@ -431,7 +441,7 @@ class FieldTasksProvider extends ChangeNotifier {
       await Analytics.track('field_task_completed', properties: {'task_id': taskId});
       return true;
     } on PostgrestException catch (e) {
-      _error = e.message;
+      _error = _friendlyError(e, 'حدث خطأ أثناء إنهاء المهمة');
       notifyListeners();
       return false;
     } catch (_) {
