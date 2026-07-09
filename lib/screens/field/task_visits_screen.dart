@@ -4,6 +4,7 @@ import '../../models/field_task.dart';
 import '../../models/task_visit.dart';
 import '../../providers/field_tasks_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/cairo_datetime.dart';
 import 'add_visit_screen.dart';
 
 /// Lists the visits logged for one field task and lets the rep add more
@@ -123,7 +124,7 @@ class _TaskVisitsScreenState extends State<TaskVisitsScreen> {
           Text('الوقت المحدد', style: AppTheme.bodySmall),
           const Spacer(),
           Text(
-            '${_t(widget.task.windowStart)} – ${_t(widget.task.windowEnd)}',
+            '${cairoHm(widget.task.windowStart)} – ${cairoHm(widget.task.windowEnd)}',
             style: AppTheme.bodyMedium.copyWith(
                 color: AppColors.primary, fontWeight: FontWeight.w600),
             textDirection: TextDirection.ltr,
@@ -211,10 +212,6 @@ class _TaskVisitsScreenState extends State<TaskVisitsScreen> {
     );
   }
 
-  static String _t(DateTime dt) {
-    final cairo = dt.toUtc().add(const Duration(hours: 2));
-    return '${cairo.hour.toString().padLeft(2, '0')}:${cairo.minute.toString().padLeft(2, '0')}';
-  }
 }
 
 class _VisitCard extends StatelessWidget {
@@ -269,7 +266,7 @@ class _VisitCard extends StatelessWidget {
               if (visit.governorateName != null)
                 _meta(Icons.location_city_outlined, visit.governorateName!),
               if (visit.products.isNotEmpty)
-                _meta(Icons.sell_outlined, _productsLabel(visit.products)),
+                _meta(Icons.sell_outlined, VisitProduct.joinLabels(visit.products)),
               // M2 shows «تم التقديم» instead of contacted/onboarded counts.
               if (visit.templateSlug == 'merchants_acceptance_finance')
                 _meta(Icons.assignment_turned_in_outlined,
@@ -277,7 +274,7 @@ class _VisitCard extends StatelessWidget {
               else
                 _meta(Icons.people_outline,
                     'تواصل ${visit.contactedCount} • تسجيل ${visit.onboardedCount}'),
-              _meta(Icons.schedule, _t(visit.recordedAt)),
+              _meta(Icons.schedule, cairoHm(visit.recordedAt)),
             ],
           ),
           if (visit.notes.isNotEmpty) ...[
@@ -301,20 +298,5 @@ class _VisitCard extends StatelessWidget {
         Text(text, style: AppTheme.bodySmall),
       ],
     );
-  }
-
-  static String _productsLabel(List<String> products) {
-    return products
-        .map((p) => p == 'microfinance'
-            ? 'تمويل'
-            : p == 'acceptance'
-                ? 'Acceptance'
-                : p)
-        .join(' + ');
-  }
-
-  static String _t(DateTime dt) {
-    final cairo = dt.toUtc().add(const Duration(hours: 2));
-    return '${cairo.hour.toString().padLeft(2, '0')}:${cairo.minute.toString().padLeft(2, '0')}';
   }
 }

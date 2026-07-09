@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/task_assignment.dart';
+import '../utils/cairo_datetime.dart';
 
 class TasksProvider extends ChangeNotifier {
   final _supabase = Supabase.instance.client;
@@ -19,11 +20,8 @@ class TasksProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
-  /// Current date in Cairo time (UTC+2). Egypt does not observe DST.
-  static String _cairoToday() {
-    final cairo = DateTime.now().toUtc().add(const Duration(hours: 2));
-    return cairo.toIso8601String().substring(0, 10);
-  }
+  /// Current date in Cairo time (DST-correct via the timezone package).
+  static String _cairoToday() => cairoTodayIso();
 
   /// Load tasks once per Cairo day. Returns cached data on subsequent calls.
   Future<void> loadTodaysTasks() async {

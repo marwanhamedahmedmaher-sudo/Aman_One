@@ -4,6 +4,64 @@ Session log entries rotated out of `CLAUDE.md`. Newest first within this file.
 
 ---
 
+### Session: 2026-04-17 (late evening) — Patrol regression harness wired: golden-path on Android emulator
+**Duration:** ~45m
+**Focus:** Stand up the first automated regression test so the pilot pipeline has a gate in front of the signed-APK step. Previous sessions left this as the top Next Session item — user picked Patrol over Maestro/Appium.
+**Completed:**
+- **Patrol 3.x + integration_test wiring**:
+  - `patrol: ^3.13.0` + `integration_test` added to dev_dependencies in [pubspec.yaml](pubspec.yaml); `patrol:` config block names the Android package so the CLI can discover the test runner.
+  - Android test instrumentation: [android/app/build.gradle.kts](android/app/build.gradle.kts) gets `testInstrumentationRunner = "pl.leancode.patrol.PatrolJUnitRunner"` + `clearPackageData=true` + `ANDROIDX_TEST_ORCHESTRATOR` execution + `androidx.test:orchestrator` util dep. Parameterized runner stub at [android/app/src/androidTest/java/com/aman/aman_sales_app/MainActivityTest.java](android/app/src/androidTest/java/com/aman/aman_sales_app/MainActivityTest.java).
+- **Golden-path test** [integration_test/patrol_test.dart](integration_test/patrol_test.dart) covers, in order:
+  1. Phone entry (11-digit Egyptian mobile, normalized from `PATROL_TEST_PHONE` if supplied as E.164) → tap "تسجيل الدخول".
+  2. Password entry from `PATROL_TEST_PASSWORD` → tap "دخول".
+  3. Defensive biometric opt-in dialog dismiss (3-second wait, tap "لاحقا" if surfaced — CI emulators lack biometric hw so it's usually absent).
+  4. Home assertion (Arabic "أهلا" greeting visible).
+  5. New-lead form — all 3 products checked (`Microfinance` with `50000` amount, `BP POS`, `Acceptance POS` with `3` devices), plus tagged name/notes carrying the run's `patrolRunTag`.
+  6. Submit → success screen "تم تسجيل العميل بنجاح" → "العودة للرئيسية".
+  7. Home stats card tap "تم إنشاؤهم هذا الأسبوع" → merchant list.
+  8. Tap tagged row → profile "بيانات العميل".
+  9. NID pre-reveal: assert 14 bullets `*************`. Tap "عرض". Post-reveal: regex-assert `^28501010\d{6}$` (fixed prefix from the test NID generator).
+- **Test data generators** [integration_test/helpers/test_data.dart](integration_test/helpers/test_data.dart):
+  - `patrolRunTag` = `PATROL-TEST-<UTC yyyymmdd-hhmmss>-<6-hex>` — unique per run, survives parallel runs, trivially globbable for cleanup.
+  - `generateTestPhone()` → `0109999XXXX` (Vodafone 010 prefix, 9999 non-allocated bucket, 4 random digits).
+  - `generateTestNationalId()` → `28501010` (century 2 + 1985-01-01 + Cairo gov 01) + 6 random digits. Passes migration 003's trigger (century, YYMMDD, governorate, digit-count) without needing a real checksum since V1 accepts any digit for position 14.
+- **Cleanup** [integration_test/helpers/test_cleanup.dart](integration_test/helpers/test_cleanup.dart): `tearDown` calls `cleanupMerchantsByTag(patrolRunTag)` which runs a `DELETE FROM merchants WHERE notes LIKE '%<tag>%'` via the authenticated rep's JWT. RLS confines the delete to the rep's own rows, so **no service-role key is needed in CI**. `audit_log` rows are retained by design (V1 forensic record).
+- **CI workflow** [.github/workflows/patrol-regression.yml](.github/workflows/patrol-regression.yml): Ubuntu + `reactivecircus/android-emulator-runner@v2` API 33 google_apis x86_64 on a Pixel 6 profile. KVM enabled for ~30s emulator boot (vs minutes with swiftshader). Two-phase emulator step — first creates+caches the AVD snapshot, second runs Patrol against the warm snapshot. Triggers on PR when `lib/`/`pubspec.yaml`/`pubspec.lock`/`integration_test/`/`android/`/the workflow itself changes; also manual `workflow_dispatch`. Concurrency group per ref so parallel PR runs don't collide on prod's dedup constraints. All 4 secrets fail-fast validated before the Patrol invocation. Failure uploads `patrol-failure-logs` artifact with 14-day retention.
+- **Runbook** [docs/PATROL-RUNBOOK.md](docs/PATROL-RUNBOOK.md) covers: one-time test-rep provisioning via `scripts/provision_rep.sh` + password rotation, GH secret setup, local `patrol test` invocation, recovery SQL for crashed-run leftovers, common failure modes.
+**Decisions:**
+- **Prod Supabase, not dev.** User directive — accept the cost of polluting prod `audit_log` with a trickle of test rows in exchange for testing what actually ships. Tag-based row cleanup keeps `merchants` clean; audit retention is V1 policy anyway.
+- **No service-role key in CI.** Cleanup uses the rep's own JWT + RLS. Cheaper security posture than adding another long-lived admin credential to the Actions secret store.
+- **Skip first-login change-password in golden path.** Documented as a known gap. Covering it would require provisioning a fresh rep every run (service-role in CI) or running it as an optional workflow triggered only when the change-password code is touched. Revisit when admin graduates to Option C2 (Edge Function).
+- **Durable test rep, rotation-free.** A fresh-per-run rep would make change-password coverage trivial but doubles the provisioning blast radius. One rep, one post-rotation password stored in GH secrets, rotated manually when Marwan wants.
+- **Anchor finders on Arabic strings + widget types, not widget keys.** Keeps the test readable in context and avoids littering feature code with `Key('...')` nodes just for testing. Tradeoff: if a screen's Arabic copy changes the test breaks — the runbook lists this as the #1 failure mode.
+- **Use existing pilot APK at runtime (debug-signed from Patrol's flutter-build).** No keystore needed for the test build; Patrol uses a debug signature which doesn't conflict with any release install because the emulator is wiped between AVD cache warmups.
+**Backlog impact:**
+- **P1-14 added — IN_PROGRESS.** Not pilot-blocking (pilot can ship without it) but the highest-ROI infra investment before rollout scales. Status stays `IN_PROGRESS` until the first green CI run lands.
+- No other backlog changes.
+**Blockers now:** 0 active.
+**Files changed:**
+- `pubspec.yaml` (+7 lines — patrol/integration_test deps + patrol config block)
+- `android/app/build.gradle.kts` (+7 lines — instrumentation runner + orchestrator)
+- `android/app/src/androidTest/java/com/aman/aman_sales_app/MainActivityTest.java` (new, ~35 lines — Patrol JUnit runner stub)
+- `integration_test/patrol_test.dart` (new, ~170 lines — golden path)
+- `integration_test/helpers/test_data.dart` (new, ~35 lines — generators)
+- `integration_test/helpers/test_cleanup.dart` (new, ~25 lines — rep-JWT delete)
+- `.github/workflows/patrol-regression.yml` (new, ~115 lines — CI)
+- `docs/PATROL-RUNBOOK.md` (new, ~155 lines)
+- `CLAUDE.md` (P1-14 row, this entry, rotation)
+- `CLAUDE.archive.md` (rotated 2026-04-16 late-late-night entry)
+**Pending user action (required before first CI run):**
+1. Provision the durable Patrol test rep against **prod** — follow [docs/PATROL-RUNBOOK.md](docs/PATROL-RUNBOOK.md) § "One-time setup". Suggested phone: `+201099990000`. Log in with the temp password from `scripts/provision_rep.sh`, rotate it, save the final password.
+2. Add 2 new GitHub Actions secrets: `PATROL_TEST_PHONE` and `PATROL_TEST_PASSWORD` (the rotated password, not the temp). `SUPABASE_URL` and `SUPABASE_ANON_KEY` are already set from the build workflow — reused, no duplication needed.
+3. Trigger `Patrol Regression` workflow manually from `main` first — this warms the AVD cache (~15–20 min cold). Subsequent runs are ~5–8 min.
+4. When the first run is green, flip P1-14 from `IN_PROGRESS` to `DONE <date>`.
+**Next Session:**
+1. **Pentest automation** — now that regression is wired, stand up the security layer. Two parallel tracks recommended: (a) MobSF Docker step inside `.github/workflows/build-pilot-apk.yml` after the existing `apktool` decompile (hard-fail on High/Critical, baseline Flutter-framework false positives in a yaml allowlist); (b) RLS fuzzing via a Dart script that walks a matrix of PostgREST calls with differently-signed rep JWTs to prove cross-rep reads/writes get rejected.
+2. **Two CodeRabbit follow-ups still unopened from 2026-04-17 afternoon** — Security Definer hardening (`SET search_path` + `set_claim` internal-only) and the RTL fix in `forgot_password_screen.dart:19`. File before pilot traffic accumulates.
+3. If Patrol stabilizes and proves useful, expand the golden path into feature-specific tests triggered by path filters (e.g. tasks feature test only on `lib/providers/tasks_provider.dart` changes) — keeps individual runs fast while widening coverage.
+
+---
+
 ### Session: 2026-04-17 (post-prod-smoke) — Product analytics wired: Mixpanel + vendor-neutral Analytics facade
 **Duration:** ~40m
 **Focus:** Stand up pilot product analytics so rep-behaviour funnels are observable from day one of rollout. Previous sessions already proved the prod pipeline works; now we need telemetry to actually learn from pilot usage.

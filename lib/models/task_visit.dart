@@ -25,6 +25,14 @@ enum PlaceKind {
   final String value;
   final String labelAr;
   const PlaceKind(this.value, this.labelAr);
+
+  /// Arabic label for a stored `place_kind` string (falls back to the raw value).
+  static String labelForValue(String value) {
+    for (final k in PlaceKind.values) {
+      if (k.value == value) return k.labelAr;
+    }
+    return value;
+  }
 }
 
 /// Mission-2 product. Stored as a string in the `products` text[] column.
@@ -35,6 +43,18 @@ enum VisitProduct {
   final String value;
   final String labelAr;
   const VisitProduct(this.value, this.labelAr);
+
+  /// Arabic label for a stored product string (falls back to the raw value).
+  static String labelForValue(String value) {
+    for (final p in VisitProduct.values) {
+      if (p.value == value) return p.labelAr;
+    }
+    return value;
+  }
+
+  /// " + "-joined Arabic labels for a list of stored product strings.
+  static String joinLabels(List<String> products) =>
+      products.map(labelForValue).join(' + ');
 }
 
 /// One logged field visit (a row in `public.task_visits`).
