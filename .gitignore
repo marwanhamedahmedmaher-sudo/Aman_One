@@ -71,13 +71,19 @@ scripts/reset_reps_batch.sh
 scripts/provision_reps_aman_*.sh
 scripts/reset_reps_aman_*.sh
 
-# Pilot rep temp-password sheets (plaintext passwords — distribute, then delete)
-docs/pilot_reps_*.xlsx
-docs/pilot_reps_*.tsv
-
-# Merchant lead exports (plaintext NIDs — hand off to business unit, then delete)
-docs/merchants_export_*.xlsx
-docs/merchants_export_*.tsv
+# Data exports under docs/ — these carry PII: rep temp-password sheets
+# (docs/pilot_reps_*) and merchant lead exports with plaintext NIDs
+# (docs/merchants_export_*). Distribute, then delete — never commit.
+#
+# Blanket by extension rather than by filename prefix: docs/ tracks prose and
+# html only, so a tabular file here is always an export, never a fixture. The
+# runbook's "Download CSV" flow and the export-visit-photos edge function both
+# emit names we cannot predict, and a prefix match would let them through.
+# A genuinely committable data file needs a deliberate `git add -f`.
+docs/*.csv
+docs/*.tsv
+docs/*.xlsx
+docs/*.xls
 
 # Office owner-lock files (~$ prefix escapes the globs above; embed local username)
 ~$*
