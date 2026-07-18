@@ -53,6 +53,25 @@ String cairoDayLabel(DateTime dt) {
   return '${cairoWeekdayAr(dt)} ${c.day}/${c.month}';
 }
 
+/// True when the weekly-planning window is open: Thursday 18:00 → Friday 14:00
+/// Cairo time. Mirrors the server-side gate (assert_planning_window_open); the
+/// server is the real authority, this only drives the UI so reps don't hit a
+/// silent rejection. Pass [now] in tests; defaults to the current instant.
+bool cairoPlanningWindowOpen([DateTime? now]) {
+  final c = toCairo(now ?? DateTime.now());
+  if (c.weekday == DateTime.thursday) return c.hour >= 18;
+  if (c.weekday == DateTime.friday) return c.hour < 14;
+  return false;
+}
+
+/// True in the soft-close zone: Friday 12:00 → 14:00 Cairo. The window is still
+/// open (edits still save) but the UI nudges the rep that it closes at 2pm. Pure
+/// UI signal — no server counterpart; the hard gate stays at 14:00.
+bool cairoPlanningWindowClosingSoon([DateTime? now]) {
+  final c = toCairo(now ?? DateTime.now());
+  return c.weekday == DateTime.friday && c.hour >= 12 && c.hour < 14;
+}
+
 /// Today's date in Cairo, as `yyyy-MM-dd` (matches server `task_date`).
 String cairoTodayIso() {
   final c = toCairo(DateTime.now());

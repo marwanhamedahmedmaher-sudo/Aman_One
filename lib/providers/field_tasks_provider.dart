@@ -33,7 +33,7 @@ class FieldTasksProvider extends ChangeNotifier {
   // ---- weekly planning state (separate from today's execution view) ----
   List<FieldTask> _weekTasks = [];
   final Map<String, int> _planCounts = {}; // task_id -> number of planned stops
-  DateTime? _weekStart; // Cairo Sunday the planning week starts on
+  DateTime? _weekStart; // Cairo Friday the planning week starts on (Fri→Thu cycle)
   bool _weekLoading = false;
 
   List<FieldTask> get tasks => _tasks;
@@ -293,9 +293,9 @@ class FieldTasksProvider extends ChangeNotifier {
   // Weekly planning
   // ==========================================================================
 
-  /// Generate (idempotently) and load the working week's tasks (Sun–Thu × 3
-  /// windows) for the current rep, each with its planned-stop count. Populates
-  /// [weekTasks] / [weekStart] / [planCount].
+  /// Generate (idempotently) and load the full weekly cycle's tasks (Fri–Thu ×
+  /// 3 windows, weekends included) for the current rep, each with its
+  /// planned-stop count. Populates [weekTasks] / [weekStart] / [planCount].
   Future<void> loadWeekTasks() async {
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) return;
@@ -305,7 +305,7 @@ class FieldTasksProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Server pre-generates the week and returns its Sunday.
+      // Server pre-generates the week and returns its Friday (Fri→Thu cycle).
       final res = await _supabase.rpc('ensure_my_week_field_tasks');
       final weekStartStr = res as String?;
       if (weekStartStr == null) {
@@ -318,7 +318,7 @@ class FieldTasksProvider extends ChangeNotifier {
         return;
       }
       final weekStart = DateTime.parse(weekStartStr);
-      final weekEnd = weekStart.add(const Duration(days: 4));
+      final weekEnd = weekStart.add(const Duration(days: 6)); // Fri..Thu inclusive
       String d(DateTime dt) => dt.toIso8601String().substring(0, 10);
 
       final data = await _supabase

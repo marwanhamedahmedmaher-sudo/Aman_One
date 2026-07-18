@@ -41,6 +41,13 @@ class _TaskPlanScreenState extends State<TaskPlanScreen> {
   }
 
   Future<void> _addPlace() async {
+    // Defensive: the FAB is hidden outside the window, but guard in case the
+    // window closes while this screen is open. Server is the real authority.
+    if (!cairoPlanningWindowOpen()) {
+      _snack('التخطيط مغلق — متاح من الخميس ٦ مساءً حتى الجمعة ٢ ظهراً',
+          isError: true);
+      return;
+    }
     final added = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => AddPlanItemScreen(task: widget.task)),
     );
@@ -107,13 +114,17 @@ class _TaskPlanScreenState extends State<TaskPlanScreen> {
         title: Text(widget.task.title, style: AppTheme.heading3),
         backgroundColor: AppColors.white,
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addPlace,
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.textWhite,
-        icon: const Icon(Icons.add_location_alt_outlined),
-        label: Text('أضف مكان', style: AppTheme.buttonText),
-      ),
+      // Adding a stop is only allowed inside the planning window (Thu 6pm →
+      // Fri 1pm). Outside it, hide the FAB — the plan is read-only for the week.
+      floatingActionButton: cairoPlanningWindowOpen()
+          ? FloatingActionButton.extended(
+              onPressed: _addPlace,
+              backgroundColor: AppColors.primary,
+              foregroundColor: AppColors.textWhite,
+              icon: const Icon(Icons.add_location_alt_outlined),
+              label: Text('أضف مكان', style: AppTheme.buttonText),
+            )
+          : null,
       body: SafeArea(
         child: Column(
           children: [

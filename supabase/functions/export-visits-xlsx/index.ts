@@ -1,9 +1,9 @@
 // ============================================================================
-// export-visits-xlsx — Excel export of field activity. Sheet 1: task_visits
-// (current build) with the photo embedded inline in each row. Sheet 2 (only
-// when rows exist): task_checkins — the OLD one-check-in-per-task model still
-// being written by reps on the pre-visits APK. Interim visibility until the
-// fleet upgrade (P1-17); remove the sheet once task_checkins goes quiet.
+// export-visits-xlsx — Excel export of field activity.
+//   Sheet 1 «الزيارات»            — task_visits (current build), photo inline.
+//   Sheet 2 «تسجيلات النظام القديم» — task_checkins (old APK); only when rows exist.
+//   Sheet 3 «الخطة الأسبوعية»       — task_plan_items (the weekly PLAN, separate
+//                                    from the actual visits); only when rows exist.
 //
 // A sales rep exports their OWN activity; a supervisor exports their own
 // BUSINESS UNIT's activity only; admin exports everyone's. RTL Arabic
@@ -11,7 +11,7 @@
 //
 //   GET /functions/v1/export-visits-xlsx?from=YYYY-MM-DD&to=YYYY-MM-DD  (range, inclusive)
 //   GET /functions/v1/export-visits-xlsx?date=YYYY-MM-DD                (one Cairo day, legacy)
-//   GET /functions/v1/export-visits-xlsx                               (all visits, capped)
+//   GET /functions/v1/export-visits-xlsx                               (all, capped)
 //
 // Photos are fetched with the service-role key and embedded as thumbnails.
 // ============================================================================
@@ -54,6 +54,17 @@ const PLACE_KIND: Record<string, string> = {
   gov_institution: 'مؤسسة حكومية',
   hospital: 'مستشفى',
 };
+const PLAN_STATUS: Record<string, string> = {
+  planned: 'مخطط لها',
+  visited: 'تمت الزيارة',
+  skipped: 'تم التخطي',
+};
+
+function productsAr(products: string[] | null): string {
+  return (products ?? [])
+    .map((p) => (p === 'microfinance' ? 'تمويل' : p === 'acceptance' ? 'Acceptance' : p))
+    .join(' + ');
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -77,7 +88,7 @@ Deno.serve(async (req: Request) => {
   if (role !== 'sales_rep' && role !== 'supervisor' && role !== 'admin') {
     return err({ error: 'forbidden', detail: 'not authorized' }, 403);
   }
-  // Scoping: a sales rep exports only their own visits; a supervisor exports
+  // Scoping: a sales rep exports only their own activity; a supervisor exports
   // their own BUSINESS UNIT only; admin exports everyone's.
   const privileged = role === 'supervisor' || role === 'admin';
 
@@ -101,7 +112,7 @@ Deno.serve(async (req: Request) => {
     buRepIds = (buUsers ?? []).map((u) => u.id);
   }
   const scopeFilter = (q: any) => {
-    if (!privileged) return q.eq('rep_id', user.id); // rep → own visits only
+    if (!privileged) return q.eq('rep_id', user.id); // rep → own only
     if (buRepIds) return q.in('rep_id', buRepIds); // supervisor → own BU only
     return q; // admin → everyone
   };
@@ -143,8 +154,27 @@ Deno.serve(async (req: Request) => {
   cq = scopeFilter(cq);
   const { data: checkins } = await cq;
 
+  // Weekly PLAN (task_plan_items) — separate from the actual visits above. Same
+  // scoping + date filter (on the parent field_task's date). Best-effort: a
+  // query error here must not sink the visits export.
+  let pq = admin
+    .from('task_plan_items')
+    .select(
+      'rep_id, template_slug, status, notes, ' +
+        'place_kind, place_name, products, merchant_name, business_name, ' +
+        'governorates(name_ar), aman_branches(name_ar), ' +
+        'field_tasks!inner(title, task_date, window_start, window_end)',
+    )
+    .order('created_at', { ascending: true })
+    .limit(MAX_ROWS);
+  pq = dateFilter(pq);
+  pq = scopeFilter(pq);
+  const { data: planItems } = await pq;
+
   const repIds = [
-    ...new Set([...(visits ?? []), ...(checkins ?? [])].map((r) => r.rep_id)),
+    ...new Set(
+      [...(visits ?? []), ...(checkins ?? []), ...(planItems ?? [])].map((r) => r.rep_id),
+    ),
   ];
   const { data: users } = repIds.length
     ? await admin.from('users').select('id, name, employee_id, region').in('id', repIds)
@@ -184,9 +214,6 @@ Deno.serve(async (req: Request) => {
       v.place_name ||
       [v.merchant_name, v.business_name].filter(Boolean).join(' - ') ||
       ((v.aman_branches as { name_ar?: string } | null)?.name_ar ?? '');
-    const products = (v.products ?? [])
-      .map((p: string) => (p === 'microfinance' ? 'تمويل' : p === 'acceptance' ? 'Acceptance' : p))
-      .join(' + ');
 
     const row = ws.addRow({
       rep: u?.name ?? '',
@@ -197,7 +224,7 @@ Deno.serve(async (req: Request) => {
       type: VISIT_TYPE[v.template_slug] ?? v.template_slug,
       entity,
       kind: v.place_kind ? (PLACE_KIND[v.place_kind] ?? '') : '',
-      products,
+      products: productsAr(v.products),
       submitted: v.application_submitted == null ? '' : v.application_submitted ? 'نعم' : 'لا',
       gov: (v.governorates as { name_ar?: string } | null)?.name_ar ?? '',
       contacted: isM2 ? '' : v.contacted_count,
@@ -227,8 +254,8 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // Sheet 2 — old check-ins. Skipped entirely when empty, so the sheet
-  // disappears on its own once the fleet is on the visits APK.
+  // Sheet 2 — old check-ins. Skipped when empty, so it disappears on its own
+  // once the fleet is on the visits APK.
   if ((checkins ?? []).length) {
     const ws2 = wb.addWorksheet('تسجيلات النظام القديم', { views: [{ rightToLeft: true }] });
     ws2.columns = [
@@ -264,6 +291,57 @@ Deno.serve(async (req: Request) => {
         window: c.in_window ? 'في الموعد' : 'خارج الموعد',
         acc: c.accuracy_m == null ? '' : Math.round(c.accuracy_m),
         map: { text: 'الخريطة', hyperlink: `https://maps.google.com/?q=${c.lat},${c.lng}` },
+      }).alignment = { vertical: 'middle', wrapText: true };
+    }
+  }
+
+  // Sheet 3 — the weekly PLAN (intended stops), separate from the actual visits
+  // in sheet 1. Skipped when empty. One row per planned stop.
+  if ((planItems ?? []).length) {
+    const ws3 = wb.addWorksheet('الخطة الأسبوعية', { views: [{ rightToLeft: true }] });
+    ws3.columns = [
+      { header: 'اسم المندوب', key: 'rep', width: 20 },
+      { header: 'رقم الموظف', key: 'emp', width: 12 },
+      { header: 'المنطقة', key: 'region', width: 12 },
+      { header: 'المهمة', key: 'task', width: 26 },
+      { header: 'التاريخ', key: 'date', width: 12 },
+      { header: 'الوقت المحدد', key: 'sched', width: 14 },
+      { header: 'نوع الزيارة', key: 'type', width: 22 },
+      { header: 'الجهة المخططة', key: 'entity', width: 24 },
+      { header: 'التصنيف', key: 'kind', width: 14 },
+      { header: 'المنتجات', key: 'products', width: 16 },
+      { header: 'المحافظة', key: 'gov', width: 14 },
+      { header: 'الحالة', key: 'status', width: 12 },
+      { header: 'ملاحظات', key: 'notes', width: 26 },
+    ];
+    ws3.getRow(1).font = { bold: true };
+    ws3.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+    for (const p of planItems ?? []) {
+      const u = userMap.get(p.rep_id);
+      const ft = p.field_tasks as {
+        title?: string; task_date?: string; window_start?: string; window_end?: string;
+      };
+      const entity =
+        p.place_name ||
+        [p.merchant_name, p.business_name].filter(Boolean).join(' - ') ||
+        ((p.aman_branches as { name_ar?: string } | null)?.name_ar ?? '');
+      ws3.addRow({
+        rep: u?.name ?? '',
+        emp: u?.employee_id ?? '',
+        region: u?.region ?? '',
+        task: ft?.title ?? '',
+        date: ft?.task_date ?? '',
+        sched: ft?.window_start && ft?.window_end
+          ? `${hhmmCairo(ft.window_start)} - ${hhmmCairo(ft.window_end)}`
+          : '',
+        type: VISIT_TYPE[p.template_slug] ?? p.template_slug,
+        entity,
+        kind: p.place_kind ? (PLACE_KIND[p.place_kind] ?? '') : '',
+        products: productsAr(p.products),
+        gov: (p.governorates as { name_ar?: string } | null)?.name_ar ?? '',
+        status: PLAN_STATUS[p.status] ?? p.status,
+        notes: p.notes ?? '',
       }).alignment = { vertical: 'middle', wrapText: true };
     }
   }

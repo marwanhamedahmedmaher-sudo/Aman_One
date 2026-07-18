@@ -100,8 +100,10 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
-          Text('خطّط زياراتك للأسبوع القادم (الأحد – الخميس)',
+          Text('خطّط زياراتك لكامل الأسبوع (الجمعة – الخميس)',
               style: AppTheme.bodyMedium.copyWith(color: AppColors.textLight)),
+          const SizedBox(height: 8),
+          _planningWindowBanner(),
           const SizedBox(height: 12),
           for (final entry in byDay.entries) ...[
             // Label from a real task timestamp (not the naive grouping key).
@@ -117,6 +119,53 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
                 )),
             const SizedBox(height: 12),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// Shows whether the planning window (Thu 6pm → Fri 1pm) is open. When closed,
+  /// the server refuses add/remove; this tells the rep why before they try.
+  Widget _planningWindowBanner() {
+    final open = cairoPlanningWindowOpen();
+    final closingSoon = open && cairoPlanningWindowClosingSoon();
+    // Three states: open (green), open-but-closing-soon after 12pm (amber),
+    // closed (red). The hard cutoff is 2pm — soft close is a UI nudge only.
+    final Color bg;
+    final Color fg;
+    final IconData icon;
+    final String text;
+    if (!open) {
+      bg = const Color(0xFFFDECEC);
+      fg = AppColors.buttonRed;
+      icon = Icons.lock_clock_outlined;
+      text = 'التخطيط مغلق — متاح من الخميس ٦ مساءً حتى الجمعة ٢ ظهراً';
+    } else if (closingSoon) {
+      bg = const Color(0xFFFFF4E5);
+      fg = const Color(0xFFB26A00);
+      icon = Icons.timelapse_outlined;
+      text = 'التخطيط يُغلق الساعة ٢ ظهراً — سارِع بإنهاء خطتك';
+    } else {
+      bg = AppColors.primaryLight;
+      fg = AppColors.primary;
+      icon = Icons.lock_open_outlined;
+      text = 'التخطيط مفتوح الآن — عدّل خطتك قبل الجمعة ٢ ظهراً';
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: fg),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text,
+                style: AppTheme.bodySmall.copyWith(color: fg)),
+          ),
         ],
       ),
     );
