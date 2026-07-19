@@ -124,7 +124,7 @@ class _WeeklyPlanScreenState extends State<WeeklyPlanScreen> {
     );
   }
 
-  /// Shows whether the planning window (Thu 6pm → Fri 1pm) is open. When closed,
+  /// Shows whether the planning window (Thu 6pm → Fri 2pm) is open. When closed,
   /// the server refuses add/remove; this tells the rep why before they try.
   Widget _planningWindowBanner() {
     final open = cairoPlanningWindowOpen();

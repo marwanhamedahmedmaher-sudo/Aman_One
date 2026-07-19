@@ -115,7 +115,7 @@ class _TaskPlanScreenState extends State<TaskPlanScreen> {
         backgroundColor: AppColors.white,
       ),
       // Adding a stop is only allowed inside the planning window (Thu 6pm →
-      // Fri 1pm). Outside it, hide the FAB — the plan is read-only for the week.
+      // Fri 2pm). Outside it, hide the FAB — the plan is read-only for the week.
       floatingActionButton: cairoPlanningWindowOpen()
           ? FloatingActionButton.extended(
               onPressed: _addPlace,

@@ -4,6 +4,41 @@ Session log entries rotated out of `CLAUDE.md`. Newest first within this file.
 
 ---
 
+### Session: 2026-04-19 — Tablet quick-win: max-width ResponsiveContainer wrapper on all screens
+**Duration:** ~25m
+**Focus:** Pilot discovery — most of our reps are actually on tablets, not phones. The app installs fine on Android tablets (no manifest restrictions), but the UI is phone-first with zero adaptive layouts — on a 10" tablet every form field stretches edge-to-edge, buttons are comically wide, and there's a sea of whitespace between the bottom nav and anything else. Ship the cheapest hotfix that makes the app usable on tablets today, and queue a proper responsive refactor for later.
+**Completed:**
+- **Scoped two tiers** with the user: (1) quick win — constrain content to ~640 dp max-width, centred; (2) proper responsive pass — master/detail, landscape, breakpoints. User greenlit shipping tier 1 now and deferring tier 2 to the backlog.
+- **New reusable widget** [lib/widgets/responsive_container.dart](lib/widgets/responsive_container.dart): `Center > ConstrainedBox(maxWidth: 640)` wrapper. Key property: `ConstrainedBox` with only a `maxWidth` is a **no-op on narrow (phone) screens** because the parent's tight `maxWidth` constraint already beats the widget's loose one. So phones render bit-identically to before; tablets get a centred 640 dp reading column. No `LayoutBuilder`, no `MediaQuery` branching — deliberately keeping the hotfix as close to a null-op as possible on the hot path.
+- **Wrapped every top-level screen body**:
+  - Auth: [phone_entry_screen.dart](lib/screens/auth/phone_entry_screen.dart), [password_screen.dart](lib/screens/auth/password_screen.dart), [change_password_screen.dart](lib/screens/auth/change_password_screen.dart), [forgot_password_screen.dart](lib/screens/auth/forgot_password_screen.dart)
+  - Main: [home_screen.dart](lib/screens/main/home_screen.dart), [tasks_screen.dart](lib/screens/main/tasks_screen.dart), [profile_screen.dart](lib/screens/main/profile_screen.dart)
+  - Lead + merchant: [new_lead_screen.dart](lib/screens/lead/new_lead_screen.dart), [lead_success_screen.dart](lib/screens/lead/lead_success_screen.dart), [merchant_list_screen.dart](lib/screens/merchant/merchant_list_screen.dart), [merchant_profile_screen.dart](lib/screens/merchant/merchant_profile_screen.dart)
+- **`flutter analyze` clean** (83.8s, "No issues found!").
+**Decisions:**
+- **640 dp max-width** — reading-column width, matches typography guidance for single-column forms; wider (720–800) starts looking awkward on form layouts. On a ~800 dp-wide tablet in portrait there's ~80 dp of margin on each side, which looks intentional rather than empty.
+- **Auth header stays full-width visually via colour, not width** — the auth screens' brand-coloured `AuthHeader` now also sits within the 640 dp column rather than stretching edge-to-edge. Considered letting it bleed full-width while constraining only the card below, but that requires splitting the scroll into two layers per screen and isn't worth the complexity for a hotfix. The header still looks balanced centered in 640 dp.
+- **No breakpoint logic in the widget** — a proper responsive pass (P1-15) will need `LayoutBuilder`-based adaptive layouts anyway (master/detail, 2-up grids). Adding premature breakpoint plumbing now would mean ripping it out or refactoring it when P1-15 lands. The hotfix is deliberately dumb: one constant, one centre.
+- **Deferred: tablet AVD in Patrol matrix**. P1-14's Patrol run still uses a Pixel 6 phone profile. Without tablet coverage we can regress this widget without noticing. Listed as a prerequisite in P1-15's notes so it doesn't get forgotten.
+**Backlog impact:**
+- **P1-15 added (TODO)** — full tablet master/detail refactor. Explicitly notes the hotfix as already landed, and lists the three prerequisites (tablet AVD, hardware confirmation, landscape).
+- No rows closed — this is infra for the existing pilot, not a discrete feature.
+**Blockers now:** 0 active.
+**Files changed:**
+- `lib/widgets/responsive_container.dart` (new, ~35 lines)
+- 11 screen files — added `import`, wrapped body in `ResponsiveContainer(child: ...)`. No behavioural changes.
+- `CLAUDE.md` (P1-15 row added, this entry, rotation)
+- `CLAUDE.archive.md` (rotated 2026-04-17 morning entry)
+**Pending user action:**
+1. **Confirm on a real tablet** before the next APK cut — sideload the current debug build (or wait for the next CI build) on a Galaxy Tab / iPad-class Android tablet and walk the golden path. Look for: centred 640 dp column with background colour visible on either side, no layout overflow warnings, bottom nav still full-width, merchant list rows still legible at the narrower width.
+2. **Answer the two P1-15 prerequisites** — (a) which tablet hardware are pilot reps using? (b) portrait or landscape? This unblocks scoping the proper responsive refactor.
+**Next Session:**
+1. **Pentest automation** — still the top-priority infra follow-up from the Patrol session. MobSF Docker step in [.github/workflows/build-pilot-apk.yml](.github/workflows/build-pilot-apk.yml) + RLS fuzzing script.
+2. **Two CodeRabbit follow-ups** — Security Definer hardening (`SET search_path` + `set_claim` internal-only) and RTL fix in `forgot_password_screen.dart:19`. Still unopened from 2026-04-17 afternoon.
+3. **P1-15 scoping** once tablet hardware is confirmed — draft breakpoints, decide landscape/portrait default, add tablet AVD to Patrol matrix.
+
+---
+
 ### Session: 2026-04-17 (late evening) — Patrol regression harness wired: golden-path on Android emulator
 **Duration:** ~45m
 **Focus:** Stand up the first automated regression test so the pilot pipeline has a gate in front of the signed-APK step. Previous sessions left this as the top Next Session item — user picked Patrol over Maestro/Appium.
