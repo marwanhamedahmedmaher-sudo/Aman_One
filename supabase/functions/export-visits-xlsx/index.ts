@@ -39,9 +39,18 @@ function err(body: unknown, status: number) {
   });
 }
 
+// DST-aware Cairo HH:mm. Uses the IANA Africa/Cairo zone (Deno has full ICU),
+// so summer (+3) and winter (+2) are both correct — matches the app's
+// Africa/Cairo formatting and the server's AT TIME ZONE.
+const _cairoHm = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Africa/Cairo',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
 function hhmmCairo(iso: string): string {
-  const d = new Date(new Date(iso).getTime() + 2 * 3600 * 1000);
-  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  // en-GB gives "HH:mm"; normalize the 24:xx midnight edge case to 00:xx.
+  return _cairoHm.format(new Date(iso)).replace(/^24:/, '00:');
 }
 
 const VISIT_TYPE: Record<string, string> = {

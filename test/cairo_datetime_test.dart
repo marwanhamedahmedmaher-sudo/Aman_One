@@ -52,5 +52,23 @@ void main() {
       // Sat 10:00 Cairo = 07:00 UTC.
       expect(cairoPlanningWindowOpen(DateTime.utc(2026, 7, 18, 7, 0)), isFalse);
     });
+
+    // Winter = Egypt standard time (+2). Exercises the Thu/Fri cutoffs off the
+    // DST branch so the window logic isn't only proven in summer.
+    // 2026-01-15 is Thursday, 2026-01-16 is Friday.
+    test('winter (+2): opens at Thu 18:00', () {
+      // Thu 18:00 Cairo = 16:00 UTC (+2).
+      expect(cairoPlanningWindowOpen(DateTime.utc(2026, 1, 15, 16, 0)), isTrue);
+      // Thu 17:59 Cairo = 15:59 UTC → still closed.
+      expect(cairoPlanningWindowOpen(DateTime.utc(2026, 1, 15, 15, 59)), isFalse);
+    });
+    test('winter (+2): closing-soon Fri 12:00, hard close Fri 14:00', () {
+      // Fri 12:00 Cairo = 10:00 UTC.
+      final soft = DateTime.utc(2026, 1, 16, 10, 0);
+      expect(cairoPlanningWindowOpen(soft), isTrue);
+      expect(cairoPlanningWindowClosingSoon(soft), isTrue);
+      // Fri 14:00 Cairo = 12:00 UTC → closed.
+      expect(cairoPlanningWindowOpen(DateTime.utc(2026, 1, 16, 12, 0)), isFalse);
+    });
   });
 }
